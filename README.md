@@ -36,10 +36,29 @@ tag such as `v0.7.0` publishes them on a GitHub Release.
 install at all (just double-click). The builds are unsigned, so Windows SmartScreen may say "Windows protected your
 PC": click **More info → Run anyway**.
 
-**Updating:** there is no auto-update (that needs paid code-signing certificates). To update, install or
-download the new version over the old one. Your rule sets and settings are kept - they live in the app's own data
-folder, not in the app itself. Use *Export* on the rules tab if you want a backup. (The portable .exe keeps its
-data per Windows user, so it is shared between versions too.)
+### Self-updating
+
+The installed app updates itself from GitHub Releases - no reinstalling. A few seconds after start (and every
+6 hours) it looks at the latest release for `app-update.json`: if that is newer, it downloads it in the
+background and asks **Restart now / Later**. Your rules and settings are kept. A bad update rolls itself back
+(and is never retried). **Help → Check for Updates…** checks on demand.
+
+To publish an update:
+1. Bump `version` in `package.json` (the number shown in the app's corner) and merge to `main`.
+2. Create a release with a matching tag, e.g. `v0.9.0` (GitHub → Releases → *Draft a new release* → *Create new
+   tag on publish*). The *Build desktop apps* workflow then attaches the installers **and** `app-update.json`.
+   (It refuses to publish if the tag and `package.json` version differ.)
+
+Running apps pick it up on their next check. Only a change to the native shell itself (`electron/`, the
+Electron version) needs a fresh installer; bump `shellVersion` in `package.json` when that happens and apps will
+tell you, with a link to the download. Installing a version older than 0.8.0 is a one-off: reinstall once to get
+the updater.
+
+**Private repository:** GitHub only shows a private repo's releases to someone signed in, so either make the
+repository public, or give each computer a read-only token once: create a *fine-grained personal access token*
+(GitHub → Settings → Developer settings) limited to this repository with **Contents: Read-only**, copy it, then
+choose **Help → Use Update Token from Clipboard**. It is stored encrypted on that computer and used only to look
+for updates.
 
 ## Using it
 

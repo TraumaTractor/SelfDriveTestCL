@@ -1,8 +1,9 @@
 name: Build desktop apps
 
-# Builds the standalone apps: a Mac .dmg and Windows installer + portable .exe. Run it by hand from the
-# Actions tab (files appear as downloads on the run), or push a tag like v0.7.0 to also publish them on a
-# GitHub Release.
+# Builds the standalone apps (Mac .dmg, Windows installer + portable .exe) and the self-update file.
+# Run it by hand from the Actions tab (files appear as downloads on the run), or push a tag like v0.8.0
+# (it must match the version in package.json) to publish everything on a GitHub Release. Installed
+# apps look at the latest release for `app-update.json` and update themselves.
 on:
   workflow_dispatch:
   push:
@@ -42,9 +43,25 @@ jobs:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.files }}
 
+  # The self-update file: the built web app packed into one JSON file.
+  update-file:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run update-file
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Self-Drive-Test-Bench-update-file
+          path: release/app-update.json
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, update-file]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
