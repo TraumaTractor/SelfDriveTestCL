@@ -1,0 +1,45 @@
+type Child = Node | string | null | undefined | false;
+type Props = Record<string, unknown> & { class?: string; style?: string; on?: Record<string, (e: Event) => void> };
+
+/** Tiny hyperscript helper. */
+export function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Props = {}, ...children: Child[]): HTMLElementTagNameMap[K] {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (v === undefined || v === null || v === false) continue;
+    if (k === 'class') el.className = String(v);
+    else if (k === 'style') el.setAttribute('style', String(v));
+    else if (k === 'on') for (const [ev, fn] of Object.entries(v as Record<string, (e: Event) => void>)) el.addEventListener(ev, fn);
+    else if (k in el) (el as unknown as Record<string, unknown>)[k] = v;
+    else el.setAttribute(k, String(v));
+  }
+  for (const c of children) if (c !== null && c !== undefined && c !== false) el.append(c);
+  return el;
+}
+
+export interface SliderOpts {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  unit?: string;
+  hint?: string;
+  onInput: (v: number) => void;
+}
+
+export function slider(o: SliderOpts): HTMLElement {
+  const decimals = Math.max(0, -Math.floor(Math.log10(o.step)));
+  const fmt = (v: number) => `${v.toFixed(decimals)}${o.unit ? ' ' + o.unit : ''}`;
+  const out = h('span', { class: 'sl-val' }, fmt(o.value));
+  const input = h('input', {
+    type: 'range', min: String(o.min), max: String(o.max), step: String(o.step), value: String(o.value),
+    on: {
+      input: () => {
+        const v = Number(input.value);
+        out.textContent = fmt(v);
+        o.onInput(v);
+      },
+    },
+  });
+  return h('label', { class: 'sl', title: o.hint ?? '' }, h('span', { class: 'sl-label' }, o.label), out, input);
+}
