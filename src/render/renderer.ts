@@ -1,4 +1,7 @@
-import { MS_TO_KMH } from '../common';
+import * as U from '../units';
+import { theme } from '../theme';
+import { VEHICLE_SPECS } from '../sim/vehicle';
+import { drawTopDown, topDownLightOffsets } from './sprites';
 import type { EgoReport } from '../ego/egoDriver';
 import { RULE_BY_ID } from '../ego/rules';
 import { rampAt, rampInstances, speedLimitAt, wrapS, zoneInstances } from '../sim/road';
@@ -16,13 +19,19 @@ export interface RenderOptions {
   sensorRange: number;
 }
 
-const Y_STRETCH = 1.8; // exaggerate lateral scale so lanes are readable
+const Y_STRETCH = 1.8;
+
+const PALETTE = {
+  dark: { grass: '#1f3a2a', asphalt: '#34383f', ramp: '#3d424b', tree1: '#2b5a3c', tree2: '#27503a', ramps: '#8d94a0' },
+  light: { grass: '#79a867', asphalt: '#5b616b', ramp: '#676d78', tree1: '#4f8a4a', tree2: '#5b9a54', ramps: '#d5dae2' },
+}; // exaggerate lateral scale so lanes are readable
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private w = 0;
   private h = 0;
   private dpr = 1;
+  private pal = PALETTE.dark;
   private smoothA = new Map<number, number>();
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -59,14 +68,16 @@ export class Renderer {
     const yOf = (lane: number) => lane0Y + lane * lw * sy;
 
     // grass + scenery
-    ctx.fillStyle = '#1f3a2a';
+    const pal = PALETTE[theme()];
+    this.pal = pal;
+    ctx.fillStyle = pal.grass;
     ctx.fillRect(0, 0, this.w, this.h);
     this.scenery(sOf(0), sOf(this.w), xOf, yOf, lanes, lw * sy, sx);
 
     // asphalt
     const top = yOf(0) - lw * sy / 2;
     const bot = yOf(lanes - 1) + lw * sy / 2;
-    ctx.fillStyle = '#34383f';
+    ctx.fillStyle = pal.asphalt;
     ctx.fillRect(0, top, this.w, bot - top);
     // verge line along the outer (overtaking) edge
     ctx.fillStyle = '#e8e8e8';
@@ -78,7 +89,7 @@ export class Renderer {
       const x0 = xOf(r.start), x1 = xOf(r.end);
       if (x1 < -50 || x0 > this.w + 50) continue;
       const rampH = lw * sy;
-      ctx.fillStyle = '#3d424b';
+      ctx.fillStyle = pal.ramp;
       ctx.beginPath();
       ctx.moveTo(x0 - 40, rampY - rampH / 2);
       ctx.lineTo(x0 + 30, rampY + rampH / 2);
@@ -98,7 +109,7 @@ export class Renderer {
       // end barrier
       ctx.fillStyle = '#d4a20f';
       ctx.fillRect(x1 - 2, rampY - rampH / 2, 4, rampH);
-      this.text(`ON-RAMP`, x0 + 30, rampY + 4, '#8d94a0', 10);
+      this.text(`ON-RAMP`, x0 + 30, rampY + 4, pal.ramps, 10);
     }
 
     // lane markings
@@ -132,7 +143,7 @@ export class Renderer {
     for (const z of zoneInstances(world.road, sOf(0), sOf(this.w))) {
       const px = xOf(z.start);
       if (px < -40 || px > this.w + 40) continue;
-      this.sign(px, bot + 16, Math.round(z.limit * MS_TO_KMH / 10) * 10);
+      this.sign(px, bot + 16, Math.round(U.speedValue(z.limit) / (U.getUnits() === 'imperial' ? 5 : 10)) * (U.getUnits() === 'imperial' ? 5 : 10));
     }
 
     // vehicles (wrecks first so they sit underneath)
@@ -163,38 +174,29 @@ export class Renderer {
     ctx.translate(px, py);
     // lateral movement tilt
     if (v.changing) ctx.rotate(Math.atan2(-(v.targetLane - v.y) * 0.25, 1) * -1 * 0.6);
-    ctx.fillStyle = v.crashed ? '#555a63' : v.color;
-    roundRect(ctx, -len / 2, -wid / 2, len, wid, 4);
-    ctx.fill();
+
+    drawTopDown(ctx, v, len, wid);
     if (v.kind === 'ego') {
       ctx.lineWidth = 2.5;
       ctx.strokeStyle = '#ffffff';
-      ctx.stroke();
-    } else {
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      roundRect(ctx, -len / 2, -wid / 2, len, wid, 4);
       ctx.stroke();
     }
-    if (!v.crashed) {
-      // windscreen
-      ctx.fillStyle = 'rgba(15,20,30,0.7)';
-      ctx.fillRect(len * 0.12, -wid / 2 + 2, len * 0.2, wid - 4);
-      // brake lights
-      if (v.a < -1) {
-        ctx.fillStyle = '#ff2a2a';
-        ctx.fillRect(-len / 2 - 1, -wid / 2 + 1, 3, 4);
-        ctx.fillRect(-len / 2 - 1, wid / 2 - 5, 3, 4);
-      }
+    // brake lights
+    if (!v.crashed && v.a < -1) {
+      ctx.fillStyle = '#ff2a2a';
+      for (const dy of topDownLightOffsets(v, wid)) ctx.fillRect(-len / 2 - 1, dy - 2, 3, 4);
     }
     // indicators / hazards
     const blink = Math.floor(time * 2.5) % 2 === 0;
     const hazards = v.crashed;
     if ((v.indicator !== 0 || hazards) && blink) {
       ctx.fillStyle = '#ffb000';
+      const edge = v.type === 'motorcycle' ? Math.max(3, wid * 0.3) : wid / 2 - 2;
       const lit = (side: number) => {
         ctx.beginPath();
-        ctx.arc(len / 2 - 2, side * (wid / 2 - 2), 3, 0, Math.PI * 2);
-        ctx.arc(-len / 2 + 2, side * (wid / 2 - 2), 3, 0, Math.PI * 2);
+        ctx.arc(len / 2 - 2, side * edge, 3, 0, Math.PI * 2);
+        ctx.arc(-len / 2 + 2, side * edge, 3, 0, Math.PI * 2);
         ctx.fill();
       };
       if (hazards || v.indicator === 1) lit(1); // overtaking side = down on screen
@@ -239,13 +241,13 @@ export class Renderer {
       ctx.lineTo(lx - lead.length * sx / 2, ly);
       ctx.stroke();
       ctx.setLineDash([]);
-      this.text(`${t.gap.toFixed(0)} m · ${(t.gap / Math.max(ego.v, 0.1)).toFixed(1)} s`, (ex + lx) / 2, Math.min(ey, ly) + laneH * 0.62, danger ? '#ff4d6a' : '#35e0ff', 11, 'center');
+      this.text(`${U.dist(t.gap)} · ${(t.gap / Math.max(ego.v, 0.1)).toFixed(1)} s`, (ex + lx) / 2, Math.min(ey, ly) + laneH * 0.62, danger ? '#ff4d6a' : '#35e0ff', 11, 'center');
 
       // tracking tag attached to the tracked vehicle
       const accCol = t.a < -0.8 ? '#ff4d6a' : t.a > 0.8 ? '#3ecf8e' : '#cfd6e0';
       const arrow = t.a < -0.8 ? '▼' : t.a > 0.8 ? '▲' : '■';
-      const l1 = `${t.name} · ${(lead.v * MS_TO_KMH).toFixed(0)} km/h`;
-      const l2 = `${arrow} ${t.a >= 0 ? '+' : ''}${t.a.toFixed(1)} m/s²  (${t.kN >= 0 ? '+' : ''}${t.kN.toFixed(1)} kN)`;
+      const l1 = `${t.name} ${t.noun} · ${U.speed(lead.v)}`;
+      const l2 = `${arrow} ${U.accel(t.a, true)}  (${U.force(t.kN)})`;
       const w = 150, hgt = 34;
       const tx = Math.min(Math.max(lx - w / 2, 6), this.w - w - 6);
       const ty = ly - laneH * 0.5 - hgt - 4;
@@ -280,9 +282,8 @@ export class Renderer {
       ctx.stroke();
       ctx.setLineDash([]);
       ctx.strokeRect(fx - f.length * sx / 2 - 3, fy - laneH * 0.36, f.length * sx + 6, laneH * 0.72);
-      const closingKmh = im.followerClosing * MS_TO_KMH;
-      const l1 = `they would brake ${im.imposedDecel.toFixed(1)} m/s² (limit ${chk.limit.toFixed(1)})`;
-      const l2 = `${Math.max(0, im.followerGap).toFixed(0)} m back · ${closingKmh >= 0 ? '+' : ''}${closingKmh.toFixed(0)} km/h vs us`;
+      const l1 = `they would brake ${U.accel(im.imposedDecel)} (limit ${U.accel(chk.limit)})`;
+      const l2 = `${U.dist(Math.max(0, im.followerGap))} back · ${U.speedDelta(im.followerClosing)} vs us`;
       const w = 205, hgt = 34;
       const tx = Math.min(Math.max(fx - w / 2, 6), this.w - w - 6);
       const ty = fy + laneH * 0.5 + 4;
@@ -314,7 +315,7 @@ export class Renderer {
   }
 
   /** The vehicle the ego is currently tracking: whatever is ahead in its lane. */
-  private tracked(world: World): { veh: Vehicle; gap: number; a: number; kN: number; name: string; closing: number; ttc: number } | null {
+  private tracked(world: World): { veh: Vehicle; gap: number; a: number; kN: number; name: string; noun: string; closing: number; ttc: number } | null {
     const lead = world.leaderAhead(world.ego);
     if (!lead) return null;
     const v = lead.veh;
@@ -322,11 +323,13 @@ export class Renderer {
     const a = prev + (v.a - prev) * 0.12;
     this.smoothA.set(v.id, a);
     if (this.smoothA.size > 200) this.smoothA.clear();
-    const mass = v.length > 6 ? 12000 : 1500;
+    const spec = VEHICLE_SPECS[v.type];
+    const mass = spec.mass;
     const closing = world.ego.v - v.v;
     return {
       veh: v, gap: lead.gap, a, kN: (mass * a) / 1000, closing,
       ttc: closing > 0.3 ? Math.max(lead.gap, 0) / closing : Infinity,
+      noun: v.crashed ? '' : spec.noun,
       name: v.crashed ? 'Wreck' : (world.cfg.personalities[v.label as keyof typeof world.cfg.personalities]?.name ?? v.label),
     };
   }
@@ -336,13 +339,13 @@ export class Renderer {
     const { ctx } = this;
     const ego = world.ego;
     const name = (id: string) => RULE_BY_ID[id]?.def.name ?? id;
-    const fmt = (a: number) => `${a >= 0 ? '+' : '−'}${Math.abs(a).toFixed(1)}`;
+    const fmt = (a: number) => U.accel(a, true);
     type Line = { text: string; color: string; bold?: boolean };
     const L: Line[] = [];
     const dim = '#8d94a0', txt = '#cfd6e0', amber = '#ffb000', red = '#ff4d6a', cyan = '#35e0ff', green = '#3ecf8e';
 
     // speed
-    L.push({ text: `GOAL  hold ${(r.targetSpeed * MS_TO_KMH).toFixed(0)} km/h (limit ${(r.limit * MS_TO_KMH).toFixed(0)}) · now ${(ego.v * MS_TO_KMH).toFixed(0)}`, color: txt });
+    L.push({ text: `GOAL  hold ${U.speed(r.targetSpeed)} (limit ${U.speedValue(r.limit).toFixed(0)}) · now ${U.speedValue(ego.v).toFixed(0)}`, color: txt });
 
     // acceleration: every proposal, most restrictive first
     const props = [...r.accelProposals].sort((x, y) => x.a - y.a).slice(0, 4);
@@ -350,12 +353,12 @@ export class Renderer {
     props.forEach((p, i) => {
       const winner = i === 0;
       L.push({
-        text: `${i === 0 ? 'SPEED ' : '      '}${winner ? '▶' : ' '} ${name(p.by)} ${fmt(p.a)} m/s²${winner ? '  ◀ wins' : ''}`,
+        text: `${i === 0 ? 'SPEED ' : '      '}${winner ? '▶' : ' '} ${name(p.by)} ${fmt(p.a)}${winner ? '  ◀ wins' : ''}`,
         color: winner ? (r.emergency ? red : cyan) : dim, bold: winner,
       });
     });
-    if (r.clampedBy) L.push({ text: `      ⤷ ${name(r.clampedBy)} limits it to ${fmt(r.accel)} m/s²`, color: amber });
-    else if (props.length) L.push({ text: `      ⤷ applying ${fmt(r.accel)} m/s²`, color: dim });
+    if (r.clampedBy) L.push({ text: `      ⤷ ${name(r.clampedBy)} limits it to ${fmt(r.accel)}`, color: amber });
+    else if (props.length) L.push({ text: `      ⤷ applying ${fmt(r.accel)}`, color: dim });
     if (r.emergency) L.push({ text: 'EMERGENCY BRAKE', color: red, bold: true });
 
     // lane
@@ -441,9 +444,9 @@ export class Renderer {
     ctx.fillStyle = 'rgba(10,14,20,0.78)';
     roundRect(ctx, 10, 10, 190, 66, 8);
     ctx.fill();
-    this.text(`${(ego.v * MS_TO_KMH).toFixed(0)}`, 22, 52, '#ffffff', 34);
-    this.text('km/h', 88, 52, '#8d94a0', 12);
-    this.text(`limit ${(limit * MS_TO_KMH).toFixed(0)}`, 22, 68, ego.v > limit * 1.02 ? '#ff9340' : '#8d94a0', 11);
+    this.text(`${U.speedValue(ego.v).toFixed(0)}`, 22, 52, '#ffffff', 34);
+    this.text(U.speedUnit(), 88, 52, '#8d94a0', 12);
+    this.text(`limit ${U.speedValue(limit).toFixed(0)}`, 22, 68, ego.v > limit * 1.02 ? '#ff9340' : '#8d94a0', 11);
     this.text(`lane ${ego.targetLane + 1}/${world.road.lanes}${rampAt(world.road, ego.s) ? ' · ramp' : ''} · lap ${world.lap + 1}${world.cfg.endless ? '' : '/' + Math.max(1, world.cfg.laps)}`, 100, 68, '#8d94a0', 11);
 
     let hudBottom = 84;
@@ -457,9 +460,9 @@ export class Renderer {
     this.text('TRACKING', 20, hudBottom + 23, '#35e0ff', 10);
     if (t) {
       const accCol = t.a < -0.8 ? '#ff4d6a' : t.a > 0.8 ? '#3ecf8e' : '#cfd6e0';
-      this.text(`${t.name} · ${(t.veh.v * MS_TO_KMH).toFixed(0)} km/h · ${t.gap.toFixed(0)} m ahead`, 20, hudBottom + 39, '#ffffff', 12);
-      this.text(`momentum ${t.kN >= 0 ? '+' : ''}${t.kN.toFixed(1)} kN (${t.a >= 0 ? '+' : ''}${t.a.toFixed(1)} m/s²)`, 20, hudBottom + 54, accCol, 12);
-      this.text(`closing ${t.closing >= 0 ? '+' : ''}${(t.closing * MS_TO_KMH).toFixed(0)} km/h · TTC ${Number.isFinite(t.ttc) ? t.ttc.toFixed(1) + ' s' : '—'}`, 20, hudBottom + 69, t.ttc < 2.5 ? '#ff9340' : '#cfd6e0', 12);
+      this.text(`${t.name} ${t.noun} · ${U.speed(t.veh.v)} · ${U.dist(t.gap)} ahead`, 20, hudBottom + 39, '#ffffff', 12);
+      this.text(`momentum ${U.force(t.kN)} (${U.accel(t.a, true)})`, 20, hudBottom + 54, accCol, 12);
+      this.text(`closing ${U.speedDelta(t.closing)} · TTC ${Number.isFinite(t.ttc) ? t.ttc.toFixed(1) + ' s' : '—'}`, 20, hudBottom + 69, t.ttc < 2.5 ? '#ff9340' : '#cfd6e0', 12);
     } else {
       this.text('nothing ahead in range', 20, hudBottom + 42, '#8d94a0', 12);
     }
@@ -501,7 +504,7 @@ export class Renderer {
       const hsh = hash(s);
       const x = xOf(s + (hsh % 17));
       const r = 4 + (hsh % 5) * sx / 6;
-      ctx.fillStyle = hsh % 3 === 0 ? '#2b5a3c' : '#27503a';
+      ctx.fillStyle = hsh % 3 === 0 ? this.pal.tree1 : this.pal.tree2;
       ctx.beginPath();
       ctx.arc(x, top - 28 - (hsh % 23), r, 0, Math.PI * 2);
       ctx.fill();

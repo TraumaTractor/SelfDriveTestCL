@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.9.0",
+    "title": "Settings, light & dark mode, units and new vehicles",
+    "items": [
+      "⚙ Settings now has a Theme switch (Auto / Light / Dark). Light mode brightens the whole app and the road scene; Dark turns the dashcam view to dusk.",
+      "Choose Metric (km/h, metres) or Imperial (mph, feet, miles). Everything follows it: speedometer, gaps, signs, sliders, the decisions log and the car's explanations.",
+      "New vehicles on the road: vans, lorries, motorcycles and coaches, each with its own artwork in both the top-down and dashcam views. Lorries and coaches are speed limited and keep out of the fastest lane on 3+ lane roads. Set the mix in the Traffic tab.",
+      "The tracked-vehicle readout now says what it is (e.g. \"Average lorry\") and uses its real weight for the momentum figure."
+    ]
+  },
+  {
     "version": "0.8.1",
     "title": "Clearer update errors",
     "items": [

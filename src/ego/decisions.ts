@@ -2,13 +2,14 @@ import type { Vehicle } from '../sim/vehicle';
 import type { World } from '../sim/world';
 import type { Draft } from './context';
 import { RULE_BY_ID } from './rules';
+import * as U from '../units';
 
 export interface Snapshot {
   lane: number;
   speed: number;
   target: number;
   limit: number;
-  leader: { name: string; kmh: number; gap: number; ttc: number | null } | null;
+  leader: { name: string; v: number; gap: number; ttc: number | null } | null;
 }
 
 export type DecisionKind = 'speed' | 'lane' | 'blocked' | 'emergency';
@@ -31,7 +32,7 @@ export interface DecisionRecord {
 
 const MAX_RECORDS = 400;
 const ruleName = (id: string): string => RULE_BY_ID[id]?.def.name ?? id;
-const fmt = (a: number): string => `${a >= 0 ? '+' : '−'}${Math.abs(a).toFixed(1)} m/s²`;
+const fmt = (a: number): string => U.accel(a, true);
 
 /**
  * Watches the ego's rule stack every tick and writes down the decisions it makes - what it chose,
@@ -71,7 +72,7 @@ export class DecisionLog {
       lane: me.targetLane + 1, speed: me.v, target: cruise, limit,
       leader: lead ? {
         name: lead.veh.crashed ? 'wreck' : (world.cfg.personalities[lead.veh.label as keyof typeof world.cfg.personalities]?.name ?? lead.veh.label),
-        kmh: lead.veh.v * 3.6, gap: lead.gap, ttc: closing > 0.3 ? Math.max(lead.gap, 0) / closing : null,
+        v: lead.veh.v, gap: lead.gap, ttc: closing > 0.3 ? Math.max(lead.gap, 0) / closing : null,
       } : null,
     };
   }
@@ -151,7 +152,7 @@ export class DecisionLog {
           const im = d.check?.impact;
           if (d.check && im) {
             why.push(im.follower
-              ? `safe to pull out: would make the ${world.cfg.personalities[im.follower.label as keyof typeof world.cfg.personalities]?.name ?? im.follower.label} driver ${Math.max(0, im.followerGap).toFixed(0)} m behind brake ${im.imposedDecel.toFixed(1)} m/s² (limit ${d.check.limit.toFixed(1)})`
+              ? `safe to pull out: would make the ${world.cfg.personalities[im.follower.label as keyof typeof world.cfg.personalities]?.name ?? im.follower.label} driver ${U.dist(Math.max(0, im.followerGap))} behind brake ${U.accel(im.imposedDecel)} (limit ${U.accel(d.check.limit)})`
               : `safe to pull out: nobody close behind in lane ${d.lane + 1}`);
           } else why.push('safety check is switched off: not checking who is behind');
           if (signalLead !== null) why.push(`signalling ${signalLead.toFixed(1)} s before moving so others can react`);

@@ -2,6 +2,7 @@ import { clamp } from '../common';
 import { speedLimitAt } from './road';
 import type { Vehicle } from './vehicle';
 import type { World } from './world';
+import * as U from '../units';
 
 export interface Scores {
   safety: number;
@@ -62,7 +63,7 @@ export class EgoMetrics {
         this.hardBrakeLatch = true;
         this.hardBrakeCooldown = 2;
         this.hardBrakes++;
-        world.log('hardbrake', 'warn', `Hard braking (${(-ego.a).toFixed(1)} m/s²)`);
+        world.log('hardbrake', 'warn', `Hard braking (${U.accel(-ego.a)})`);
       }
     } else if (ego.a > -1.5) this.hardBrakeLatch = false;
 
@@ -77,7 +78,7 @@ export class EgoMetrics {
         if (ttc < 1.5 && lead.gap < 25 && this.nearMissCooldown <= 0) {
           this.nearMisses++;
           this.nearMissCooldown = 3;
-          world.log('nearmiss', 'bad', `Near miss: TTC ${ttc.toFixed(1)}s, gap ${lead.gap.toFixed(1)}m`);
+          world.log('nearmiss', 'bad', `Near miss: TTC ${ttc.toFixed(1)}s, gap ${U.dist(lead.gap, 1)}`);
         }
       }
       if (ego.v > 8 && lead.gap / ego.v < 0.7) this.tailgateSeconds += dt;
@@ -89,7 +90,7 @@ export class EgoMetrics {
       if (!f) return false;
       if (f.a <= -4 || (f.crashed && world.time - f.crashTime < 1)) {
         this.cutOffs++;
-        world.log('cutoff', 'bad', `Cut off a ${f.label} driver (they braked ${(-f.a).toFixed(1)} m/s²)`);
+        world.log('cutoff', 'bad', `Cut off a ${f.label} driver (they braked ${U.accel(-f.a)})`);
         return false;
       }
       return world.time < w.until;

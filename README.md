@@ -40,9 +40,9 @@ PC": click **More info → Run anyway**.
 
 The installed app updates itself from GitHub Releases - no reinstalling. A few seconds after start (and every
 6 hours) it looks at the latest release for `app-update.json`: if that is newer, it downloads it in the
-background and asks **Restart now / Later**. The **⚙ Options** button (top right) also has *Check for updates*,
+background and asks **Restart now / Later**. The **⚙ Settings** button (top right) also has *Check for updates*,
 the version and *What's new*. Your rules and settings are kept. A bad update rolls itself back
-(and is never retried). **Help → Check for Updates…** (or ⚙ Options) checks on demand.
+(and is never retried). **Help → Check for Updates…** (or ⚙ Settings) checks on demand.
 
 To publish an update:
 1. Bump `version` in `package.json` (the number shown in the app's corner), add a matching entry at the top of
@@ -70,6 +70,9 @@ for updates.
   Edits apply *live* to the running car; the card for whichever rule is currently driving lights up, and the
   on-canvas readout says what is controlling acceleration / lane changes and why a lane change was vetoed.
   Presets, JSON export/import and auto-save (localStorage) are included.
+* **⚙ Settings** – *Theme* (Auto / Light / Dark; Dark turns the dashcam to dusk), *Units* (Metric: km/h and metres,
+  or Imperial: mph, feet and miles - speedometer, gaps, signs, sliders and the car's explanations all follow it),
+  the version, *What's new* and *Check for updates*.
 * **Decisions tab** – a plain-English log of what the car decided and why: speed control changes (which rule took
   over, what every other rule proposed and why it was overruled), planned / completed / abandoned lane changes
   (with the impact check and signalling), lane changes blocked by a rule, and emergency brakes. Click an entry for
@@ -83,6 +86,9 @@ for updates.
 
 Traffic drives on the left (UK style): the slow lane is the top lane on screen, overtaking lanes are below it,
 and on-ramps join on the left. Great drivers sit in the slow lane unless they are overtaking.
+
+**Traffic** is a mix of cars, vans, lorries, motorcycles and coaches (set the mix in the Traffic tab). Lorries and
+coaches are speed limited and keep out of the fastest lane on roads with 3+ lanes; motorcycles accelerate quickly.
 
 **Views**: top-down, top-down with a *driver dashcam* inset (click it to enlarge), or full dashcam - a
 perspective view from the driver's seat with a rear-view mirror, the tracked vehicle, speed signs and the

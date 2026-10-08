@@ -1,3 +1,5 @@
+import { convertForDisplay, onUnitsChange } from '../units';
+
 type Child = Node | string | null | undefined | false;
 type Props = Record<string, unknown> & { class?: string; style?: string; on?: Record<string, (e: Event) => void> };
 
@@ -41,8 +43,12 @@ export interface SliderOpts {
 }
 
 export function slider(o: SliderOpts): HTMLElement {
-  const decimals = Math.max(0, -Math.floor(Math.log10(o.step)));
-  const fmt = (v: number) => `${v.toFixed(decimals)}${o.unit ? ' ' + o.unit : ''}`;
+  // Values are always stored in SI; only the read-out is converted to the chosen units.
+  const fmt = (v: number) => {
+    const c = convertForDisplay(v, o.unit);
+    const decimals = Math.min(2, Math.max(0, -Math.floor(Math.log10(o.step * c.factor))));
+    return `${c.value.toFixed(decimals)}${c.unit ? ' ' + c.unit : ''}`;
+  };
   const out = h('span', { class: 'sl-val' }, fmt(o.value));
   const input = h('input', {
     type: 'range', min: String(o.min), max: String(o.max), step: String(o.step), value: String(o.value),
@@ -54,5 +60,22 @@ export function slider(o: SliderOpts): HTMLElement {
       },
     },
   });
+  const offUnits = onUnitsChange(() => { if (out.isConnected) out.textContent = fmt(Number(input.value)); else offUnits(); });
   return h('label', { class: 'sl', title: o.hint ?? '' }, h('span', { class: 'sl-label' }, o.label), out, input);
+}
+
+export interface SegmentedOpts<T extends string> {
+  name: string;
+  options: [T, string][];
+  value: T;
+  onChange: (v: T) => void;
+}
+
+/** A row of radio buttons styled as a segmented control. */
+export function segmented<T extends string>(o: SegmentedOpts<T>): HTMLElement {
+  return h('div', { class: 'seg', role: 'radiogroup' },
+    ...o.options.map(([value, label]) => {
+      const input = h('input', { type: 'radio', name: o.name, value, checked: value === o.value, on: { change: () => { if (input.checked) o.onChange(value); } } });
+      return h('label', {}, input, h('span', {}, label));
+    }));
 }

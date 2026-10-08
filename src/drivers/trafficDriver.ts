@@ -3,7 +3,7 @@ import { idm, type IdmParams } from '../sim/idm';
 import { mergeImpact } from '../sim/impact';
 import type { Rng } from '../sim/rng';
 import { rampAt, speedLimitAt } from '../sim/road';
-import { bumperGap, occupies, type Decision, type Driver, type Indicator, type Vehicle } from '../sim/vehicle';
+import { bumperGap, occupies, type Decision, type Driver, type Indicator, type Vehicle, type VehicleSpec } from '../sim/vehicle';
 import type { World } from '../sim/world';
 import type { Personality } from './personality';
 
@@ -33,8 +33,8 @@ export class TrafficDriver implements Driver {
   private intent: Intent | null = null;
   private changeSignal = false;
 
-  constructor(private readonly p: Personality, private readonly rng: Rng) {
-    this.idmParams = { a: p.accel, b: p.decel, T: p.headway, s0: p.minGap };
+  constructor(private readonly p: Personality, private readonly rng: Rng, private readonly spec: VehicleSpec, private readonly maxLane: number) {
+    this.idmParams = { a: p.accel * spec.accelScale, b: p.decel * spec.brakeScale, T: p.headway * spec.headwayScale, s0: p.minGap };
     this.noise = 1 + rng.gauss() * 0.04;
     this.courteous = rng.chance(p.courtesy);
     this.nextEval = rng.range(0, 0.5);
@@ -43,7 +43,7 @@ export class TrafficDriver implements Driver {
   decide(w: World, me: Vehicle, dt: number): Decision {
     const p = this.p;
     const limit = speedLimitAt(w.road, me.s);
-    const v0 = Math.max(3, limit * p.speedFactor * this.noise);
+    const v0 = Math.max(3, Math.min(limit * p.speedFactor * this.noise, this.spec.maxSpeed));
     me.v0 = v0;
     me.idm = this.idmParams;
 
@@ -160,7 +160,7 @@ export class TrafficDriver implements Driver {
     let bestScore = p.changeThreshold;
 
     for (const target of [lane + 1, lane - 1]) {
-      if (target < 0 || target >= w.cfg.lanes) continue;
+      if (target < 0 || target >= w.cfg.lanes || target > this.maxLane) continue;
       if (!this.isSafe(w, me, target, v0, 1)) continue;
 
       const newLead = w.leaderIn(me, target);
@@ -202,7 +202,7 @@ export class TrafficDriver implements Driver {
 
     // patient drivers put up with a slightly slower car; they only move over for a real difference
     const tolerance = 0.3 + 0.03 * v0 + 2 * p.keepSlowLane;
-    if (lead && lane + 1 < w.cfg.lanes && v0 - lead.veh.v > tolerance) {
+    if (lead && lane + 1 <= this.maxLane && v0 - lead.veh.v > tolerance) {
       const closing = Math.max(0, me.v - lead.veh.v);
       const reach = 2 * (p.minGap + p.headway * me.v) + closing * (1 + 4 * p.politeness);
       if (lead.gap < reach && this.isSafe(w, me, lane + 1, v0, 1)) {
