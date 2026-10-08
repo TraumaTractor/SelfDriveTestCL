@@ -13,26 +13,33 @@ npm test           # simulation + rule-engine tests
 npm run build      # typecheck + production build
 ```
 
-## Desktop app (Mac)
+## Desktop app (Mac and Windows)
 
-The app can run on its own as a normal Mac application - no browser, server or internet needed (Electron).
+The app can run on its own as a normal desktop application - no browser, server or internet needed (Electron).
+You need [Node.js](https://nodejs.org) (v18 or newer) once, then, in the project folder:
 
 ```bash
 npm install
-npm run app        # build and open it in its own window right now
-npm run dist       # build a distributable .dmg into ./release  (run this on a Mac)
+npm run app          # build and open it in its own window right now (Mac, Windows or Linux)
+npm run dist         # Mac: build a .dmg into ./release   (run on a Mac)
+npm run dist:win     # Windows: build an installer + a portable .exe into ./release   (run on Windows)
 ```
 
-You can also let GitHub build the `.dmg` for you: *Actions → Build Mac app → Run workflow* (or push a tag
-such as `v0.6.0` to attach it to a Release), then download it from the run's artifacts.
+You can also let GitHub build the installers: *Actions → Build desktop apps → Run workflow* (pick the branch),
+then download `Self-Drive-Test-Bench-mac` or `Self-Drive-Test-Bench-windows` from the run's artifacts. Pushing a
+tag such as `v0.7.0` publishes them on a GitHub Release.
 
-Install by dragging the app into Applications. The build is **unsigned**, so the first time you open it use
-**right-click → Open** (then *Open* again). If macOS says it is "damaged", run
-`xattr -cr "/Applications/Self-Drive Test Bench.app"` once.
+**Mac:** drag the app into Applications. The build is unsigned, so the first time use **right-click → Open**
+(then *Open* again). If macOS says it is "damaged", run `xattr -cr "/Applications/Self-Drive Test Bench.app"` once.
 
-**Updating:** there is no auto-update (that needs a paid Apple developer account for signing). To update, build
-or download the new `.dmg` and drag the app over the old one. Your rule sets and settings are kept - they live in
-the app's own data folder, not in the app itself. Use *Export* on the rules tab if you want a backup.
+**Windows:** run `Self-Drive-Test-Bench-Setup-<version>.exe` to install, or use the `-portable.exe` which needs no
+install at all (just double-click). The builds are unsigned, so Windows SmartScreen may say "Windows protected your
+PC": click **More info → Run anyway**.
+
+**Updating:** there is no auto-update (that needs paid code-signing certificates). To update, install or
+download the new version over the old one. Your rule sets and settings are kept - they live in the app's own data
+folder, not in the app itself. Use *Export* on the rules tab if you want a backup. (The portable .exe keeps its
+data per Windows user, so it is shared between versions too.)
 
 ## Using it
 
