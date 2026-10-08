@@ -47,7 +47,15 @@ export function startApp(root: HTMLElement): void {
   cfg.vehicleMix = { ...defaultConfig().vehicleMix, ...(saved.cfg?.vehicleMix ?? {}) };
   cfg.weather = { ...defaultConfig().weather, ...(saved.cfg?.weather ?? {}) };
   cfg.hazards = { ...defaultConfig().hazards, ...(saved.cfg?.hazards ?? {}) };
-  cfg.personalities = { ...defaultConfig().personalities, ...(saved.cfg?.personalities ?? {}) };
+  // Per-trait merge: settings saved by an older version lack newer traits (e.g. weatherCare), which would otherwise be undefined.
+  const defPers = defaultConfig().personalities;
+  cfg.personalities = Object.fromEntries(
+    (Object.keys(defPers) as (keyof typeof defPers)[]).map((id) => {
+      const savedP = (saved.cfg?.personalities?.[id] ?? {}) as Record<string, unknown>;
+      const merged: Record<string, unknown> = { ...defPers[id] };
+      for (const [k, v] of Object.entries(savedP)) if (k in merged && typeof v === typeof merged[k] && (typeof v !== 'number' || Number.isFinite(v))) merged[k] = v;
+      return [id, merged];
+    })) as unknown as typeof defPers;
   let rules = new RuleSet();
   try { if (saved.rules) rules = RuleSet.fromJSON(saved.rules); } catch { /* ignore corrupt data */ }
 
