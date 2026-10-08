@@ -2,6 +2,7 @@ import * as U from '../units';
 import { theme } from '../theme';
 import { VEHICLE_SPECS } from '../sim/vehicle';
 import { drawRear } from './sprites';
+import { drawDashWeather, fogAlpha } from './weatherFx';
 import type { EgoReport } from '../ego/egoDriver';
 import { rampInstances, speedLimitAt, zoneInstances } from '../sim/road';
 import type { Vehicle } from '../sim/vehicle';
@@ -132,7 +133,13 @@ export class Dashcam {
       .filter((e) => e.z > Z_NEAR && e.z < Z_FAR);
     for (const e of vehicles) items.push({ z: e.z, draw: () => this.vehicle(e.v, e.z, lerp(e.v.prevY, e.v.y) * lw, px, py, f, world.time) });
     items.sort((a, b) => b.z - a.z);
-    for (const it of items) it.draw();
+    for (const it of items) {
+      ctx.globalAlpha = fogAlpha(it.z, world.conditions);
+      it.draw();
+    }
+    ctx.globalAlpha = 1;
+
+    drawDashWeather(ctx, w, h, horizon, world.conditions, performance.now() / 1000);
 
     // tracked vehicle bracket
     const lead = world.leaderAhead(ego);

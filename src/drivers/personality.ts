@@ -34,6 +34,8 @@ export interface Personality {
   /** attention lapses per second (during a lapse the driver does not react) */
   lapseRate: number;
   /** how much harder (m/s²) a lane change may make the driver behind brake */
+  /** how much the driver adapts speed and following distance to bad weather (0 = ignores it) */
+  weatherCare: number;
   safeDecel: number;
 }
 
@@ -41,27 +43,27 @@ export const PERSONALITIES: Record<PersonalityId, Personality> = {
   great: {
     name: 'Great', color: '#3ecf8e', speedFactor: 1.0, headway: 1.8, minGap: 2.5, accel: 1.3, decel: 1.8,
     reaction: 0.25, signalProb: 1, signalLead: 2.5, politeness: 0.8, courtesy: 0.95, gapFactor: 1.5,
-    changeThreshold: 0.35, keepSlowLane: 1, lapseRate: 0, safeDecel: 1.0,
+    changeThreshold: 0.35, keepSlowLane: 1, lapseRate: 0, weatherCare: 0.95, safeDecel: 1.0,
   },
   average: {
     name: 'Average', color: '#4da3ff', speedFactor: 1.05, headway: 1.4, minGap: 2.0, accel: 1.6, decel: 2.2,
     reaction: 0.5, signalProb: 0.8, signalLead: 1.5, politeness: 0.4, courtesy: 0.7, gapFactor: 1.0,
-    changeThreshold: 0.2, keepSlowLane: 0.5, lapseRate: 0.002, safeDecel: 2.0,
+    changeThreshold: 0.2, keepSlowLane: 0.5, lapseRate: 0.002, weatherCare: 0.6, safeDecel: 2.0,
   },
   cautious: {
     name: 'Cautious / slow', color: '#c9b458', speedFactor: 0.72, headway: 2.2, minGap: 3.0, accel: 1.0, decel: 1.5,
     reaction: 0.5, signalProb: 0.9, signalLead: 2.0, politeness: 0.5, courtesy: 0.8, gapFactor: 1.6,
-    changeThreshold: 0.6, keepSlowLane: 0.1, lapseRate: 0.002, safeDecel: 0.8,
+    changeThreshold: 0.6, keepSlowLane: 0.1, lapseRate: 0.002, weatherCare: 1, safeDecel: 0.8,
   },
   aggressive: {
     name: 'Aggressive', color: '#ff9340', speedFactor: 1.2, headway: 0.8, minGap: 1.2, accel: 2.4, decel: 3.0,
     reaction: 0.7, signalProb: 0.3, signalLead: 0.5, politeness: 0.05, courtesy: 0.2, gapFactor: 0.65,
-    changeThreshold: 0.1, keepSlowLane: 0.1, lapseRate: 0.01, safeDecel: 4.0,
+    changeThreshold: 0.1, keepSlowLane: 0.1, lapseRate: 0.01, weatherCare: 0.25, safeDecel: 4.0,
   },
   reckless: {
     name: 'Reckless', color: '#ff4d6a', speedFactor: 1.35, headway: 0.4, minGap: 0.7, accel: 3.0, decel: 4.0,
     reaction: 1.1, signalProb: 0, signalLead: 0, politeness: 0, courtesy: 0, gapFactor: 0.4,
-    changeThreshold: 0.0, keepSlowLane: 0, lapseRate: 0.04, safeDecel: 7.0,
+    changeThreshold: 0.0, keepSlowLane: 0, lapseRate: 0.04, weatherCare: 0.05, safeDecel: 7.0,
   },
 };
 
@@ -82,6 +84,7 @@ export const PERSONALITY_PARAMS: (ParamDef & { key: keyof Personality })[] = [
   { key: 'changeThreshold', label: 'Lane change benefit needed', min: 0, max: 1, step: 0.05, unit: 'm/s²' },
   { key: 'keepSlowLane', label: 'Keeps to slow lane', min: 0, max: 1, step: 0.05 },
   { key: 'lapseRate', label: 'Attention lapses', min: 0, max: 0.1, step: 0.002, unit: '/s' },
+  { key: 'weatherCare', label: 'Adapts to bad weather', min: 0, max: 1, step: 0.05 },
   { key: 'safeDecel', label: 'Impact on others tolerated', min: 0.2, max: 10, step: 0.1, unit: 'm/s²' },
 ];
 

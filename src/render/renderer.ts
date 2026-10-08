@@ -2,6 +2,7 @@ import * as U from '../units';
 import { theme } from '../theme';
 import { VEHICLE_SPECS } from '../sim/vehicle';
 import { drawTopDown, topDownLightOffsets } from './sprites';
+import { drawTopDownWeather, fogAlpha, weatherBadge } from './weatherFx';
 import type { EgoReport } from '../ego/egoDriver';
 import { RULE_BY_ID } from '../ego/rules';
 import { rampAt, rampInstances, speedLimitAt, wrapS, zoneInstances } from '../sim/road';
@@ -153,11 +154,15 @@ export class Renderer {
       const vy = lerp(v.prevY, v.y, o.alpha);
       const px = xOf(vs);
       if (px < -60 || px > this.w + 60) continue;
+      ctx.globalAlpha = fogAlpha(vs - egoS, world.conditions);
       this.vehicle(v, px, yOf(vy), sx, lw * sy, world.time);
+      ctx.globalAlpha = 1;
       if (o.showLabels && v !== ego && !v.crashed) {
         this.text(v.label.slice(0, 3).toUpperCase(), px, yOf(vy) - lw * sy * 0.45, v.color, 9, 'center');
       }
     }
+
+    drawTopDownWeather(ctx, this.w, this.h, world.conditions, performance.now() / 1000);
 
     // ego overlays
     if (o.showSensors && !ego.crashed) this.sensors(world, o, xOf, yOf, sx, lw * sy);
@@ -441,17 +446,20 @@ export class Renderer {
     const ego = world.ego;
     const limit = speedLimitAt(world.road, ego.s);
     // speedometer card
+    const wx = weatherBadge(world.conditions);
     ctx.fillStyle = 'rgba(10,14,20,0.78)';
-    roundRect(ctx, 10, 10, 190, 66, 8);
+    roundRect(ctx, 10, 10, 190, wx ? 84 : 66, 8);
     ctx.fill();
+    if (wx) this.text(wx, 22, 87, '#9fd0ff', 10);
     this.text(`${U.speedValue(ego.v).toFixed(0)}`, 22, 52, '#ffffff', 34);
     this.text(U.speedUnit(), 88, 52, '#8d94a0', 12);
     this.text(`limit ${U.speedValue(limit).toFixed(0)}`, 22, 68, ego.v > limit * 1.02 ? '#ff9340' : '#8d94a0', 11);
     this.text(`lane ${ego.targetLane + 1}/${world.road.lanes}${rampAt(world.road, ego.s) ? ' · ramp' : ''} · lap ${world.lap + 1}${world.cfg.endless ? '' : '/' + Math.max(1, world.cfg.laps)}`, 100, 68, '#8d94a0', 11);
 
-    let hudBottom = 84;
+    const hudTop = wx ? 102 : 84;
+    let hudBottom = hudTop;
     const r = o.report;
-    if (r) hudBottom = this.thinking(world, r, 84);
+    if (r) hudBottom = this.thinking(world, r, hudTop);
 
     const t = this.tracked(world);
     ctx.fillStyle = 'rgba(10,14,20,0.78)';

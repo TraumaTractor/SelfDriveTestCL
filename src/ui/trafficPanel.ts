@@ -1,5 +1,6 @@
 import { VEHICLE_SPECS, VEHICLE_TYPES } from '../sim/vehicle';
 import { PERSONALITIES, PERSONALITY_IDS, PERSONALITY_PARAMS, clonePersonalities } from '../drivers/personality';
+import { WEATHER_KINDS, type WeatherKind } from '../sim/weather';
 import { h, slider, toggle } from './dom';
 import type { App, Panel } from './state';
 
@@ -34,6 +35,18 @@ export function trafficPanel(app: App): Panel {
       slider({ label: 'Loop length', min: 2000, max: 15000, step: 500, unit: 'long-m', value: cfg.length, onInput: (v) => { cfg.length = v; app.trafficDirty(); } }),
       slider({ label: 'Traffic density', min: 3, max: 35, step: 1, unit: 'veh/km/lane', value: cfg.density, onInput: (v) => { cfg.density = v; app.trafficDirty(); } }),
       slider({ label: 'On-ramp flow', min: 0, max: 20, step: 1, unit: 'veh/min', value: cfg.rampRate, onInput: (v) => { cfg.rampRate = v; app.trafficDirty(); } }),
+      h('h4', {}, 'Weather'),
+      h('div', { class: 'set-row' }, h('span', {}, 'Conditions', h('small', {}, 'Rain, fog and snow cut grip and visibility')),
+        (() => {
+          const sel = h('select', { on: { change: () => { cfg.weather.kind = sel.value as WeatherKind | 'variable'; app.trafficDirty(); build(); } } },
+            ...WEATHER_KINDS.map((k) => h('option', { value: k, selected: cfg.weather.kind === k }, { clear: 'Clear', rain: 'Rain', fog: 'Fog', snow: 'Snow & ice' }[k])),
+            h('option', { value: 'variable', selected: cfg.weather.kind === 'variable' }, 'Variable (changes during the run)'));
+          return sel;
+        })()),
+      ...(cfg.weather.kind === 'clear' || cfg.weather.kind === 'variable' ? [] : [slider({
+        label: 'Intensity', min: 0.1, max: 1, step: 0.05, value: cfg.weather.intensity,
+        onInput: (v) => { cfg.weather.intensity = v; app.trafficDirty(); },
+      })]),
       h('h4', {}, 'Vehicle mix'),
       ...VEHICLE_TYPES.map((t) => slider({
         label: VEHICLE_SPECS[t].label, min: 0, max: 100, step: 1, value: cfg.vehicleMix[t],

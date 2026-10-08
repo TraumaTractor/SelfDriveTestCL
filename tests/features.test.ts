@@ -102,3 +102,91 @@ describe('vehicle types', () => {
     expect(VEHICLE_SPECS.motorcycle.accelScale / VEHICLE_SPECS.lorry.accelScale).toBeGreaterThan(3);
   });
 });
+
+describe('weather', () => {
+  it('rain, fog and snow reduce grip and visibility monotonically', async () => {
+    const { conditionsFor, stoppingSightSpeed } = await import('../src/sim/weather');
+    for (const k of ['rain', 'fog', 'snow'] as const) {
+      const a = conditionsFor(k, 0.3), b = conditionsFor(k, 1);
+      expect(b.grip).toBeLessThan(a.grip);
+      expect(b.visibility).toBeLessThan(a.visibility);
+      expect(b.speedFactor).toBeLessThan(a.speedFactor);
+    }
+    expect(conditionsFor('snow', 1).grip).toBeLessThan(conditionsFor('rain', 1).grip);
+    expect(conditionsFor('fog', 1).visibility).toBeLessThan(conditionsFor('rain', 1).visibility);
+    expect(stoppingSightSpeed(40, 3)).toBeLessThan(stoppingSightSpeed(200, 3));
+  });
+
+  it('tyre grip limits how hard anything can brake', () => {
+    const decelIn = (kind: 'clear' | 'snow') => {
+      const cfg = defaultConfig();
+      cfg.endless = false;
+      cfg.density = 0.5;
+      cfg.weather = { kind, intensity: 1 };
+      const stamp = { decide: () => ({ accel: -9, wantLane: null, indicator: 0 as const }) };
+      const w = new World(cfg, stamp);
+      w.vehicles = [w.ego];
+      w.ego.v = 30;
+      w.step(0.05);
+      return -w.ego.a;
+    };
+    expect(decelIn('clear')).toBeCloseTo(9, 0);
+    expect(decelIn('snow')).toBeLessThan(4);
+  });
+
+  it('careful drivers slow down in fog, so traffic is slower than on a clear road', () => {
+    const meanSpeed = (weather: { kind: 'clear' | 'fog'; intensity: number }) => {
+      const cfg = defaultConfig();
+      cfg.endless = false;
+      cfg.seed = 6;
+      cfg.mix = { great: 1, average: 0, cautious: 0, aggressive: 0, reckless: 0 };
+      cfg.weather = weather;
+      const w = new World(cfg, new EgoDriver(new RuleSet()));
+      let sum = 0, n = 0;
+      for (let i = 0; i < 20 * 80; i++) {
+        w.step(0.05);
+        if (i > 20 * 30) for (const v of w.vehicles) if (v.kind === 'traffic' && !v.crashed) { sum += v.v; n++; }
+      }
+      return sum / n;
+    };
+    expect(meanSpeed({ kind: 'fog', intensity: 1 })).toBeLessThan(meanSpeed({ kind: 'clear', intensity: 0 }) * 0.8);
+  });
+
+  it('variable weather drifts through different kinds without changing the road', () => {
+    const base = defaultConfig();
+    base.endless = false;
+    base.seed = 9;
+    const still = new World({ ...base }, new EgoDriver(new RuleSet()));
+    const cfg = { ...base, weather: { kind: 'variable' as const, intensity: 0.5 } };
+    const w = new World(cfg, new EgoDriver(new RuleSet()));
+    expect(w.road.ramps).toEqual(still.road.ramps);
+    expect(w.vehicles.length).toBe(still.vehicles.length);
+    const kinds = new Set<string>();
+    for (let i = 0; i < 20 * 900; i++) {
+      w.step(0.05);
+      kinds.add(w.conditions.kind);
+      if (w.status !== 'running') break;
+    }
+    expect(kinds.size).toBeGreaterThan(1);
+  });
+
+  it('the ego car in fog: ignoring the weather is worse than adapting to it', () => {
+    const run = (adapt: boolean) => {
+      let bad = 0;
+      for (let seed = 1; seed <= 4; seed++) {
+        const cfg = defaultConfig();
+        cfg.endless = false;
+        cfg.seed = seed;
+        cfg.length = 3500;
+        cfg.weather = { kind: 'snow', intensity: 1 };
+        const rules = new RuleSet();
+        rules.get('weather-adapt')!.enabled = adapt;
+        const w = new World(cfg, new EgoDriver(rules));
+        while (w.status === 'running') w.step(0.05);
+        bad += w.metrics.collisions * 10 + w.metrics.nearMisses + w.metrics.hardBrakes * 0.2;
+      }
+      return bad;
+    };
+    expect(run(false)).toBeGreaterThanOrEqual(run(true));
+  });
+});

@@ -7,7 +7,8 @@ import {
 import { EgoMetrics } from './metrics';
 import { Rng } from './rng';
 import { generateRoad, lapOf, rampInstances, speedLimitAt, type Road } from './road';
-import { bumperGap, occupies, VEHICLE_SPECS, VEHICLE_TYPES, type Decision, type Driver, type Vehicle, type VehicleType } from './vehicle';
+import { CLEAR, WeatherDrift, conditionsFor, type Conditions, type WeatherConfig } from './weather';
+import { bumperGap, occupies, VEHICLE_SPECS, VEHICLE_TYPES, type Decision, type Driver, type TrafficVehicleType, type Vehicle, type VehicleType } from './vehicle';
 
 export interface WorldConfig {
   seed: number;
@@ -22,7 +23,8 @@ export interface WorldConfig {
   /** relative share of each driver personality */
   mix: Record<PersonalityId, number>;
   /** relative share of each kind of vehicle */
-  vehicleMix: Record<VehicleType, number>;
+  vehicleMix: Record<TrafficVehicleType, number>;
+  weather: WeatherConfig;
   personalities: Record<PersonalityId, Personality>;
   egoStart: number;
   /** the road loops forever (laps repeat the same layout); otherwise the run ends after `laps` laps */
@@ -42,6 +44,7 @@ export function defaultConfig(): WorldConfig {
     rampRate: 6,
     mix: { great: 3, average: 5, cautious: 2, aggressive: 2, reckless: 1 },
     vehicleMix: { car: 70, van: 12, lorry: 9, motorcycle: 6, coach: 3 },
+    weather: { kind: 'clear', intensity: 0.6 },
     personalities: clonePersonalities(),
     egoStart: 300,
     endless: true,
@@ -91,6 +94,9 @@ export class World {
   trafficUnsignalled = 0;
   /** completed laps of the loop */
   lap = 0;
+  /** weather right now: grip, visibility, how sensible drivers adapt */
+  conditions: Conditions = CLEAR;
+  private drift: WeatherDrift | null = null;
   /** distance at which a finite run ends */
   readonly totalLength: number;
 
@@ -108,6 +114,7 @@ export class World {
     this.road = generateRoad(this.rng, { lanes: cfg.lanes, length: cfg.length, variableLimits: cfg.variableLimits });
     this.metrics = new EgoMetrics();
     this.totalLength = cfg.endless ? Infinity : cfg.length * Math.max(1, cfg.laps);
+    this.initWeather();
 
     const egoLane = Math.min(1, cfg.lanes - 1);
     const ego = this.makeVehicle('ego', 'Ego', '#35e0ff', 'car', cfg.egoStart, egoLane, speedLimitAt(this.road, cfg.egoStart), egoDriver);
@@ -197,6 +204,8 @@ export class World {
     this.maintainPopulation(dt);
     this.rebuildIndex();
 
+    this.updateWeather(dt);
+
     // 1. everyone decides from the same snapshot
     this.pendingDecisions.clear();
     for (const v of this.vehicles) {
@@ -255,7 +264,9 @@ export class World {
     }
 
     // longitudinal
-    const a = clamp(d.accel, -10, 5);
+    // grip limits what the tyres can do: wet or icy roads mean longer stopping distances
+    const g = this.conditions.grip;
+    const a = clamp(d.accel, -10 * g, 5 * Math.max(g, 0.4));
     let v1 = v.v + a * dt;
     if (v1 < 0) v1 = 0;
     v.a = (v1 - v.v) / dt;
@@ -293,6 +304,26 @@ export class World {
       if (Math.abs(o.s - v.s) < (o.length + v.length) / 2 + 1.5) return true;
     }
     return false;
+  }
+
+  // ------------------------------------------------------------------ weather
+
+  private initWeather(): void {
+    const w = this.cfg.weather ?? { kind: 'clear', intensity: 0 };
+    if (w.kind === 'variable') {
+      // own random stream, so the weather never disturbs the traffic for a given seed
+      const r = new Rng((this.cfg.seed ^ 0x9e3779b9) >>> 0);
+      this.drift = new WeatherDrift(() => r.next());
+      this.conditions = this.drift.conditions();
+    } else {
+      this.conditions = w.kind === 'clear' ? CLEAR : conditionsFor(w.kind, w.intensity);
+    }
+  }
+
+  private updateWeather(dt: number): void {
+    if (!this.drift) return;
+    this.drift.step(dt);
+    this.conditions = this.drift.conditions();
   }
 
   // ------------------------------------------------------------ bookkeeping
@@ -424,7 +455,7 @@ export class World {
 
   /** Pick a kind of vehicle; heavy ones are kept out of the fastest lane on 3+ lane roads. */
   private pickVehicleType(lane: number): VehicleType {
-    const w = {} as Record<VehicleType, number>;
+    const w = {} as Record<TrafficVehicleType, number>;
     for (const t of VEHICLE_TYPES) w[t] = VEHICLE_SPECS[t].heavy && lane > this.maxHeavyLane() ? 0 : this.cfg.vehicleMix[t] ?? 0;
     return this.rng.weighted(w);
   }
@@ -457,7 +488,7 @@ export class World {
       s, y: lane, prevS: s, prevY: lane, v, a: 0,
       length: spec.length, width: spec.width,
       targetLane: lane, changing: false, indicator: 0, indicatorSince: 0, changeStart: 0,
-      onRamp: false, crashed: false, crashTime: 0,
+      onRamp: false, crashed: false, crashTime: 0, isStatic: false, hazard: false,
       idm: { a: 1.5, b: 2, T: 1.5, s0: 2 }, v0: speedLimitAt(this.road, s),
       driver,
     };

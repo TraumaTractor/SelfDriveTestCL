@@ -1,6 +1,7 @@
 import type { ParamDef } from '../common';
 import type { PersonalityId } from '../drivers/personality';
 import { mergeImpact, type MergeImpact } from '../sim/impact';
+import type { Conditions } from '../sim/weather';
 import { VEHICLE_SPECS, type Indicator, type Vehicle } from '../sim/vehicle';
 import type { World } from '../sim/world';
 import * as U from '../units';
@@ -59,6 +60,22 @@ export class Ctx {
     return p ? `${p.name} driver` : v.label;
   }
 
+  get conditions(): Conditions {
+    return this.world.conditions;
+  }
+
+  /** How far sensors can see right now (fog, rain and snow shorten it). */
+  get visibility(): number {
+    return this.world.conditions.visibility;
+  }
+
+  /** Following-distance multiplier from the weather rule (1 = none). */
+  get headwayScale(): number {
+    const item = this.items.find((i) => i.id === 'weather-adapt');
+    if (!item || !item.enabled) return 1;
+    return 1 + (1 / this.world.conditions.grip - 1) * item.params.headway;
+  }
+
   get lane(): number {
     return this.me.targetLane;
   }
@@ -75,7 +92,8 @@ export class Ctx {
 
   /** Leader in the lane(s) we occupy, as seen by sensors. */
   leader(): { veh: Vehicle; gap: number } | null {
-    return this.world.leaderAhead(this.me);
+    const lead = this.world.leaderAhead(this.me);
+    return lead && lead.gap <= this.visibility ? lead : null;
   }
 
   /**

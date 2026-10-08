@@ -1,6 +1,7 @@
 import { clamp } from '../common';
 import { idm } from '../sim/idm';
 import { distanceToNextRamp } from '../sim/road';
+import { stoppingSightSpeed } from '../sim/weather';
 import { LANE_CHANGE_TIME } from '../sim/world';
 import { bumperGap, type Indicator, type Vehicle } from '../sim/vehicle';
 import type { Ctx, Draft, Params, RuleDef, RuleImpl, RuleItem } from './context';
@@ -17,7 +18,7 @@ const emergencyBrake: RuleImpl = {
   },
   run(ctx, p, d) {
     const lead = ctx.world.corridorLeader(ctx.me);
-    if (!lead) return;
+    if (!lead || lead.gap > ctx.visibility) return;
     const closing = ctx.me.v - lead.veh.v;
     if (closing <= 0.3) return;
     const ttc = Math.max(lead.gap, 0) / closing;
@@ -43,7 +44,7 @@ const keepDistance: RuleImpl = {
   run(ctx, p, d) {
     const lead = ctx.leader();
     if (!lead || lead.gap > p.range) return;
-    const a = idm({ a: p.maxAccel, b: p.comfortDecel, T: p.headway, s0: p.minGap }, ctx.me.v, ctx.cruise, lead.gap, ctx.me.v - lead.veh.v);
+    const a = idm({ a: p.maxAccel, b: p.comfortDecel, T: p.headway * ctx.headwayScale, s0: p.minGap }, ctx.me.v, ctx.cruise, lead.gap, ctx.me.v - lead.veh.v);
     d.proposeAccel('keep-distance', a,
       false, `following a ${ctx.name(lead.veh)} at ${U.speed(lead.veh.v)}, ${U.dist(lead.gap, 0)} ahead (${(lead.gap / Math.max(ctx.me.v, 0.1)).toFixed(1)} s; I want ${p.headway} s)`);
   },
@@ -95,6 +96,28 @@ const keepSpeed: RuleImpl = {
   run(ctx, p, d) {
     d.proposeAccel('keep-speed', clamp(p.gain * (ctx.cruise - ctx.me.v), -3, p.maxAccel), false,
       `holding ${U.speed(ctx.cruise)} (limit ${U.speed(ctx.limit)}); now ${U.speed(ctx.me.v)}`);
+  },
+};
+
+const weatherAdapt: RuleImpl = {
+  def: {
+    id: 'weather-adapt', name: 'Adapt to the weather', phase: 'main',
+    description: 'In rain, fog or snow: slows down, and leaves a longer gap, in proportion to how much grip and visibility are lost. Switch it off to see what a car that ignores the weather does.',
+    params: [
+      { key: 'speed', label: 'Slow down by', min: 0, max: 1, step: 0.05, unit: '× of the recommended cut', default: 1 },
+      { key: 'headway', label: 'Extra following gap', min: 0, max: 1, step: 0.05, unit: '× of what grip needs', default: 1 },
+      { key: 'sight', label: 'Never outdrive my sight', min: 0, max: 1, step: 1, hint: '1 = keep speed low enough to stop within the visible distance', default: 1 },
+    ],
+  },
+  run(ctx, p, d) {
+    const c = ctx.conditions;
+    if (c.kind === 'clear') return;
+    let target = ctx.cruise * (1 - (1 - c.speedFactor) * p.speed);
+    if (p.sight >= 0.5) target = Math.min(target, stoppingSightSpeed(c.visibility * 0.8, 5 * c.grip));
+    if (ctx.me.v > target) {
+      d.proposeAccel('weather-adapt', clamp(0.6 * (target - ctx.me.v), -2.5, 0), false,
+        `${c.kind} (grip ${Math.round(c.grip * 100)}%, visibility ${U.dist(c.visibility)}): holding ${U.speed(target)} instead of ${U.speed(ctx.cruise)}`);
+    }
   },
 };
 
@@ -300,7 +323,7 @@ const comfort: RuleImpl = {
 
 /** Default evaluation order. Lane proposals earlier in the list win ties. */
 export const RULE_IMPLS: RuleImpl[] = [
-  emergencyBrake, keepDistance, yieldToMerging, keepSpeed,
+  emergencyBrake, keepDistance, yieldToMerging, weatherAdapt, keepSpeed,
   makeRoom, overtake, returnSlowLane,
   noUndertake, laneSafety, signal, comfort,
 ];

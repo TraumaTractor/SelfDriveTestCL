@@ -3,6 +3,7 @@ import { idm, type IdmParams } from '../sim/idm';
 import { mergeImpact } from '../sim/impact';
 import type { Rng } from '../sim/rng';
 import { rampAt, speedLimitAt } from '../sim/road';
+import { stoppingSightSpeed } from '../sim/weather';
 import { bumperGap, occupies, type Decision, type Driver, type Indicator, type Vehicle, type VehicleSpec } from '../sim/vehicle';
 import type { World } from '../sim/world';
 import type { Personality } from './personality';
@@ -23,6 +24,7 @@ function followAccel(veh: Vehicle, leaderS: { gap: number; v: number } | null): 
 
 export class TrafficDriver implements Driver {
   private readonly idmParams: IdmParams;
+  private readonly baseT: number;
   private readonly noise: number;
   private readonly courteous: boolean;
   private filtered = 0;
@@ -35,6 +37,7 @@ export class TrafficDriver implements Driver {
 
   constructor(private readonly p: Personality, private readonly rng: Rng, private readonly spec: VehicleSpec, private readonly maxLane: number) {
     this.idmParams = { a: p.accel * spec.accelScale, b: p.decel * spec.brakeScale, T: p.headway * spec.headwayScale, s0: p.minGap };
+    this.baseT = this.idmParams.T;
     this.noise = 1 + rng.gauss() * 0.04;
     this.courteous = rng.chance(p.courtesy);
     this.nextEval = rng.range(0, 0.5);
@@ -43,7 +46,16 @@ export class TrafficDriver implements Driver {
   decide(w: World, me: Vehicle, dt: number): Decision {
     const p = this.p;
     const limit = speedLimitAt(w.road, me.s);
-    const v0 = Math.max(3, Math.min(limit * p.speedFactor * this.noise, this.spec.maxSpeed));
+    let v0 = Math.max(3, Math.min(limit * p.speedFactor * this.noise, this.spec.maxSpeed));
+    // bad weather: careful drivers slow down and back off in proportion to how careful they are
+    const wx = w.conditions;
+    if (wx.kind !== 'clear') {
+      const care = p.weatherCare;
+      v0 *= 1 - (1 - wx.speedFactor) * care;
+      const safe = stoppingSightSpeed(wx.visibility * 0.8, 5 * wx.grip);
+      v0 = Math.max(3, Math.min(v0, v0 * (1 - care) + safe * care));
+    }
+    this.idmParams.T = this.baseT * (1 + (1 / wx.grip - 1) * p.weatherCare);
     me.v0 = v0;
     me.idm = this.idmParams;
 
@@ -51,7 +63,7 @@ export class TrafficDriver implements Driver {
     let gap = Infinity;
     let leadV = 0;
     const lead = w.leaderAhead(me);
-    if (lead) { gap = lead.gap; leadV = lead.veh.v; }
+    if (lead && lead.gap <= wx.visibility) { gap = lead.gap; leadV = lead.veh.v; } // can't react to what can't be seen
 
     // courteous drivers treat someone signalling into their lane as their leader
     if (this.courteous) {

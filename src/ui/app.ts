@@ -40,6 +40,7 @@ export function startApp(root: HTMLElement): void {
   const cfg: WorldConfig = { ...defaultConfig(), ...(saved.cfg ?? {}) };
   cfg.mix = { ...defaultConfig().mix, ...(saved.cfg?.mix ?? {}) };
   cfg.vehicleMix = { ...defaultConfig().vehicleMix, ...(saved.cfg?.vehicleMix ?? {}) };
+  cfg.weather = { ...defaultConfig().weather, ...(saved.cfg?.weather ?? {}) };
   cfg.personalities = { ...defaultConfig().personalities, ...(saved.cfg?.personalities ?? {}) };
   let rules = new RuleSet();
   try { if (saved.rules) rules = RuleSet.fromJSON(saved.rules); } catch { /* ignore corrupt data */ }
