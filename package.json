@@ -29,7 +29,7 @@
   "build": {
     "appId": "com.selfdrive.testbench",
     "productName": "Self-Drive Test Bench",
-    "artifactName": "Self-Drive-Test-Bench-${version}-${arch}.${ext}",
+    "artifactName": "Self-Drive-Test-Bench.${ext}",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -75,10 +75,10 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "artifactName": "Self-Drive-Test-Bench-Setup-${version}.${ext}"
+      "artifactName": "Self-Drive-Test-Bench-Setup.${ext}"
     },
     "portable": {
-      "artifactName": "Self-Drive-Test-Bench-${version}-portable.${ext}"
+      "artifactName": "Self-Drive-Test-Bench-portable.${ext}"
     }
   }
 }

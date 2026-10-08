@@ -32,7 +32,7 @@ tag such as `v0.7.0` publishes them on a GitHub Release.
 **Mac:** drag the app into Applications. The build is unsigned, so the first time use **right-click → Open**
 (then *Open* again). If macOS says it is "damaged", run `xattr -cr "/Applications/Self-Drive Test Bench.app"` once.
 
-**Windows:** run `Self-Drive-Test-Bench-Setup-<version>.exe` to install, or use the `-portable.exe` which needs no
+**Windows:** run `Self-Drive-Test-Bench-Setup.exe` to install, or use `Self-Drive-Test-Bench-portable.exe` which needs no
 install at all (just double-click). The builds are unsigned, so Windows SmartScreen may say "Windows protected your
 PC": click **More info → Run anyway**.
 
