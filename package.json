@@ -1,7 +1,7 @@
 {
   "name": "self-drive-test-bench",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Visualise and tweak self-driving rules on a simulated motorway",
   "author": "Self-Drive Test Bench",
   "main": "electron/main.cjs",
@@ -13,8 +13,8 @@
     "test": "vitest run",
     "preview": "vite preview",
     "app": "npm run build && electron .",
-    "dist": "npm run build && electron-builder --mac --universal",
-    "pack": "npm run build && electron-builder --dir"
+    "dist": "npm run build && electron-builder --mac --universal --publish never",
+    "pack": "npm run build && electron-builder --dir --publish never"
   },
   "devDependencies": {
     "electron": "^33.4.11",
