@@ -1,0 +1,56 @@
+name: Build desktop apps
+
+# Builds the standalone apps: a Mac .dmg and Windows installer + portable .exe. Run it by hand from the
+# Actions tab (files appear as downloads on the run), or push a tag like v0.7.0 to also publish them on a
+# GitHub Release.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            script: dist
+            artifact: Self-Drive-Test-Bench-mac
+            files: release/*.dmg
+          - os: windows-latest
+            script: dist:win
+            artifact: Self-Drive-Test-Bench-windows
+            files: release/*.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run ${{ matrix.script }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # unsigned builds
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.files }}
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-apps
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist-apps/*

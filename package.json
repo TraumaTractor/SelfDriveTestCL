@@ -1,7 +1,7 @@
 {
   "name": "self-drive-test-bench",
   "private": true,
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Visualise and tweak self-driving rules on a simulated motorway",
   "author": "Self-Drive Test Bench",
   "main": "electron/main.cjs",
@@ -14,7 +14,8 @@
     "preview": "vite preview",
     "app": "npm run build && electron .",
     "dist": "npm run build && electron-builder --mac --universal --publish never",
-    "pack": "npm run build && electron-builder --dir --publish never"
+    "pack": "npm run build && electron-builder --dir --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never"
   },
   "devDependencies": {
     "electron": "^33.4.11",
@@ -51,6 +52,31 @@
     },
     "dmg": {
       "title": "Self-Drive Test Bench"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Self-Drive-Test-Bench-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Self-Drive-Test-Bench-${version}-portable.${ext}"
     }
   }
 }
