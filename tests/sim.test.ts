@@ -7,6 +7,7 @@ import { defaultConfig, World } from '../src/sim/world';
 import { TrafficDriver } from '../src/drivers/trafficDriver';
 import { PERSONALITIES } from '../src/drivers/personality';
 import { Rng } from '../src/sim/rng';
+import type { Driver } from '../src/sim/vehicle';
 
 function greatOnly() {
   const cfg = defaultConfig();
@@ -108,6 +109,38 @@ describe('lane discipline', () => {
 
   it('a great driver on an empty road moves back to the slow (left) lane', () => {
     expect(lonely('great')).toBe(0);
+  });
+});
+
+describe('considerate traffic drivers', () => {
+  function follow(leaderSpeed: number) {
+    const cfg = defaultConfig();
+    cfg.density = 0.5;
+    cfg.rampRate = 0;
+    cfg.variableLimits = false;
+    const w = new World(cfg, new EgoDriver(new RuleSet()));
+    const mk = (id: number, s: number, lane: number, v: number, driver: Driver) => ({
+      ...w.ego, id, kind: 'traffic' as const, label: 'great', s, prevS: s, y: lane, prevY: lane, targetLane: lane, v, driver,
+    });
+    const cruiser: Driver = { decide: () => ({ accel: 0, wantLane: null, indicator: 0 }) };
+    const me = mk(90, 600, 1, 30, new TrafficDriver(PERSONALITIES.great, new Rng(3)));
+    const lead = mk(91, 650, 1, leaderSpeed, cruiser);
+    w.vehicles = [w.ego, me, lead];
+    Object.assign(w.ego, { s: 100, prevS: 100 });
+    let maxLane = 1;
+    for (let i = 0; i < 20 * 25 && w.status === 'running'; i++) {
+      w.step(0.05);
+      maxLane = Math.max(maxLane, me.targetLane);
+    }
+    return maxLane;
+  }
+
+  it('a great driver does not move right to pass a car going about the same speed', () => {
+    expect(follow(31)).toBe(1);
+  });
+
+  it('but does move over for a much slower car', () => {
+    expect(follow(15)).toBe(2);
   });
 });
 

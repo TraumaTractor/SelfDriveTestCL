@@ -39,8 +39,14 @@ Rules marked **filter** run afterwards and can veto a lane change (safety check)
 seen first (signal), or clamp acceleration (comfort limits; emergency braking is exempt).
 
 Built-in rules: emergency brake · keep following distance (IDM) · yield to merging traffic · keep to speed
-limit · move over for on-ramp · overtake slow vehicles · return to slow lane · lane-change safety ·
-signal before lane change · comfort limits.
+limit · move over for on-ramp · overtake slow vehicles · return to slow lane · no undertaking ·
+lane-change impact check · signal before lane change · comfort limits.
+
+**Overtaking** is triggered by whether the vehicle ahead will *affect* you: it must be slower than your target
+speed and close enough that you would have to follow it. The car moves over early - allowing for the signal
+delay and the move itself - so it never has to slow down for the vehicle first. A car going about the same
+speed is simply followed. **No undertaking** holds the car back rather than passing on the inside, and vetoes
+a move left that would pass a slower car in its own lane (slow-moving queues are exempt).
 
 ### Lane-change safety is about impact, not distance
 

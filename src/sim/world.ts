@@ -33,7 +33,7 @@ export function defaultConfig(): WorldConfig {
     lanes: 3,
     length: 6000,
     variableLimits: true,
-    density: 14,
+    density: 10,
     rampRate: 6,
     mix: { great: 3, average: 5, cautious: 2, aggressive: 2, reckless: 1 },
     personalities: clonePersonalities(),
@@ -59,6 +59,15 @@ export const LANE_CHANGE_TIME = 3.0;
 const WINDOW_BEHIND = 800;
 const WINDOW_AHEAD = 1500;
 const WRECK_LIFETIME = 15;
+
+/** Who tends to be in which lane: [slow lane, middle lanes, fastest lane]. */
+const LANE_AFFINITY: Record<PersonalityId, [number, number, number]> = {
+  great: [3, 0.6, 0.2],
+  average: [1.5, 1.2, 0.8],
+  cautious: [1.2, 1.3, 0.6],
+  aggressive: [0.5, 1, 2],
+  reckless: [0.3, 1, 2.5],
+};
 
 export class World {
   readonly cfg: WorldConfig;
@@ -336,7 +345,7 @@ export class World {
       const s = this.ego.s - WINDOW_BEHIND + 20;
       if (s < 0) { this.nextRearSpawn[l] = 1; continue; }
       this.nextRearSpawn[l] = this.rng.exp(1 / Math.max(flow, 1e-3));
-      const id = this.rng.weighted(cfg.mix);
+      const id = this.pickPersonality(l);
       const p = cfg.personalities[id];
       const v0 = speedLimitAt(this.road, s) * p.speedFactor;
       const v = Math.min(v0, this.ego.v + this.rng.range(1, 8));
@@ -357,6 +366,14 @@ export class World {
     });
   }
 
+  /** Pick a driver type, biased by lane so good drivers start in the slow lane and bad ones in the fast lanes. */
+  private pickPersonality(lane: number): PersonalityId {
+    const k = lane <= 0 ? 0 : lane >= this.cfg.lanes - 1 ? 2 : 1;
+    const w = {} as Record<PersonalityId, number>;
+    for (const id of PERSONALITY_IDS) w[id] = this.cfg.mix[id] * LANE_AFFINITY[id][k];
+    return this.rng.weighted(w);
+  }
+
   private seedUpTo(frontier: number): void {
     const { cfg } = this;
     const target = Math.min(frontier, this.road.length);
@@ -364,12 +381,14 @@ export class World {
       const blockStart = this.seedFront;
       const blockEnd = Math.min(blockStart + 100, this.road.length);
       for (let l = 0; l < cfg.lanes; l++) {
-        const meanSpacing = 1000 / Math.max(cfg.density, 0.5);
+        // the slow lane is busier than the fast lane, as on a real motorway
+        const laneDensity = cfg.density * (l === 0 ? 1.2 : l === cfg.lanes - 1 ? 0.8 : 1.0);
+        const meanSpacing = 1000 / Math.max(laneDensity, 0.5);
         // everyone starts at a similar, safe lane speed so the initial state is collision-free
         const laneSpeedFactor = 0.78 + 0.09 * l;
         let s = blockStart + this.rng.exp(meanSpacing * 0.5) + 6;
         while (s < blockEnd) {
-          const id = this.rng.weighted(cfg.mix);
+          const id = this.pickPersonality(l);
           const p = cfg.personalities[id];
           const limit = speedLimitAt(this.road, s);
           const v = Math.min(limit * p.speedFactor, limit * laneSpeedFactor) * this.rng.range(0.95, 1.0);

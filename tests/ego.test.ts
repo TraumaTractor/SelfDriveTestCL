@@ -106,6 +106,58 @@ describe('ego rule stack', () => {
     expect(without.driver.report.accelBy).not.toBe('yield-to-merging');
   });
 
+  it('does not overtake a car that is not slowing it down, but moves over early for one that is', () => {
+    const same = scenario(new RuleSet(), [car(50, 345, 1, 32)]);
+    same.world.step(0.05);
+    expect(same.driver.report.laneProposals.some((p) => p.by === 'overtake')).toBe(false);
+
+    // 15 m/s car still 140 m ahead: it will affect us, so the ego already plans to move over (before
+    // it has to slow down) once inside its reach; a car further back just gets a note.
+    const far = scenario(new RuleSet(), [car(50, 540, 1, 15)]);
+    far.world.step(0.05);
+    expect(far.driver.report.laneProposals.some((p) => p.by === 'overtake')).toBe(false);
+    expect(far.driver.report.notes.some((n) => n.by === 'overtake')).toBe(true);
+
+    const near = scenario(new RuleSet(), [car(51, 490, 1, 15)]);
+    near.world.step(0.05);
+    expect(near.driver.report.laneBy).toBe('overtake');
+    expect(near.driver.report.accel).toBeGreaterThan(-0.5); // moving over, not braking
+  });
+
+  it('does not undertake: holds back past slower traffic on its right', () => {
+    const slowRight = () => [car(60, 340, 2, 20)];
+    const on = scenario(new RuleSet(), slowRight());
+    on.world.step(0.05);
+    expect(on.driver.report.accelBy).toBe('no-undertake');
+
+    const rules = new RuleSet();
+    rules.get('no-undertake')!.enabled = false;
+    const off = scenario(rules, slowRight());
+    off.world.step(0.05);
+    expect(off.driver.report.accelBy).not.toBe('no-undertake');
+
+    // slow-moving queue: undertaking tolerated
+    const queue = scenario(new RuleSet(), [car(61, 340, 2, 5)]);
+    queue.world.step(0.05);
+    expect(queue.driver.report.accelBy).not.toBe('no-undertake');
+  });
+
+  it('does not pull left past a slower car in its own lane', () => {
+    const setup = (rules: RuleSet) => {
+      const sc = scenario(rules, [car(70, 360, 2, 15)]);
+      Object.assign(sc.world.ego, { y: 2, prevY: 2, targetLane: 2 }); // top lane, slow car ahead
+      sc.world.step(0.05);
+      return sc.driver.report;
+    };
+    const blocked = setup(new RuleSet());
+    expect(blocked.vetoBy).toBe('no-undertake');
+
+    const rules = new RuleSet();
+    rules.get('no-undertake')!.enabled = false;
+    const allowed = setup(rules);
+    expect(allowed.laneBy).toBe('return-slow-lane');
+  });
+
   it('moves over for a car on the on-ramp beside it', () => {
     const ramp = car(70, 310, -1, 25);
     ramp.onRamp = true;

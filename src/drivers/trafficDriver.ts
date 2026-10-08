@@ -152,16 +152,12 @@ export class TrafficDriver implements Driver {
   private chooseLane(w: World, me: Vehicle, v0: number, aOld: number): number | null {
     const p = this.p;
     const lane = me.targetLane;
+    // Considerate drivers don't hop around: they move over because the car ahead is holding them
+    // up, and otherwise stay (or return) left.
+    if (p.politeness >= 0.2) return this.considerateChoice(w, me, v0);
+
     let best: number | null = null;
     let bestScore = p.changeThreshold;
-
-    // Lane discipline: keep to the slow (left) lane unless overtaking. Move back as soon as the
-    // slow lane ahead is clear enough that it won't hold us up.
-    if (lane > 0 && p.keepSlowLane >= 0.5 && this.rng.chance(p.keepSlowLane) && this.isSafe(w, me, lane - 1, v0, 1)) {
-      const ahead = w.leaderIn(me, lane - 1);
-      const room = 0.8 * p.headway * me.v + p.minGap + 5;
-      if (!ahead || (ahead.gap > room && ahead.veh.v > me.v - 1.5)) return lane - 1;
-    }
 
     for (const target of [lane + 1, lane - 1]) {
       if (target < 0 || target >= w.cfg.lanes) continue;
@@ -192,6 +188,40 @@ export class TrafficDriver implements Driver {
       if (score > bestScore) { bestScore = score; best = target; }
     }
     return best;
+  }
+
+  /**
+   * Overtake only when the vehicle ahead will actually affect us (it is slower than we want to go
+   * and close enough that we'd have to follow it) - and move over early, before encroaching, so we
+   * don't slow anyone down. Otherwise drift back to the left, but never by undertaking.
+   */
+  private considerateChoice(w: World, me: Vehicle, v0: number): number | null {
+    const p = this.p;
+    const lane = me.targetLane;
+    const lead = w.leaderIn(me, lane);
+
+    // patient drivers put up with a slightly slower car; they only move over for a real difference
+    const tolerance = 0.3 + 0.03 * v0 + 2 * p.keepSlowLane;
+    if (lead && lane + 1 < w.cfg.lanes && v0 - lead.veh.v > tolerance) {
+      const closing = Math.max(0, me.v - lead.veh.v);
+      const reach = 2 * (p.minGap + p.headway * me.v) + closing * (1 + 4 * p.politeness);
+      if (lead.gap < reach && this.isSafe(w, me, lane + 1, v0, 1)) {
+        // ...and only if the other lane would actually let us go faster
+        const next = w.leaderIn(me, lane + 1);
+        const aHere = idm(this.idmParams, me.v, v0, lead.gap, me.v - lead.veh.v);
+        const aThere = idm(this.idmParams, me.v, v0, next ? next.gap : Infinity, next ? me.v - next.veh.v : 0);
+        if (aThere - aHere > 0.25) return lane + 1;
+      }
+    }
+
+    if (lane > 0 && p.keepSlowLane >= 0.5 && this.rng.chance(p.keepSlowLane) && this.isSafe(w, me, lane - 1, v0, 0.7)) {
+      // moving left past a slower car in our own lane would be undertaking it
+      const undertaking = lead && lead.gap < 120 && lead.veh.v < me.v - 1.5 && lead.veh.v > 8;
+      const ahead = w.leaderIn(me, lane - 1);
+      const room = 0.5 * p.headway * me.v + p.minGap + 5;
+      if (!undertaking && (!ahead || (ahead.gap > room && ahead.veh.v > me.v - 1.5))) return lane - 1;
+    }
+    return null;
   }
 
   /**
