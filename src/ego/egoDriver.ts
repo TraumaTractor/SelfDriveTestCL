@@ -1,7 +1,7 @@
 import { speedLimitAt } from '../sim/road';
 import type { Decision, Driver, Indicator, Vehicle } from '../sim/vehicle';
 import type { World } from '../sim/world';
-import { Ctx, Draft } from './context';
+import { Ctx, Draft, type MergeCheck } from './context';
 import { RuleSet, runStack } from './rules';
 
 /** What the rule stack decided last tick - used for the on-screen explanation. */
@@ -15,12 +15,24 @@ export interface EgoReport {
   accel: number;
   signalling: boolean;
   pendingLane: number | null;
+  /** impact assessment of the lane change currently being considered */
+  check: MergeCheck | null;
+  /** everything proposed this tick (acceleration: most restrictive wins) */
+  accelProposals: { by: string; a: number }[];
+  laneProposals: { by: string; lane: number }[];
+  notes: { by: string; text: string }[];
+  /** speed the car is trying to hold (m/s) and the posted limit */
+  targetSpeed: number;
+  limit: number;
+  /** seconds left on the signal-before-moving delay, if signalling */
+  signalRemaining: number | null;
 }
 
 export class EgoDriver implements Driver {
   report: EgoReport = {
     accelBy: null, laneBy: null, vetoBy: null, vetoReason: '', clampedBy: null,
-    emergency: false, accel: 0, signalling: false, pendingLane: null,
+    emergency: false, accel: 0, signalling: false, pendingLane: null, check: null,
+    accelProposals: [], laneProposals: [], notes: [], targetSpeed: 0, limit: 0, signalRemaining: null,
   };
 
   private lastChangeEnd = -Infinity;
@@ -73,7 +85,10 @@ export class EgoDriver implements Driver {
     this.report = {
       accelBy: d.accelBy, laneBy: d.laneBy, vetoBy: d.vetoBy, vetoReason: d.vetoReason,
       clampedBy: d.clampedBy, emergency: d.emergency, accel,
-      signalling: indicator !== 0, pendingLane: this.pending?.target ?? null,
+      signalling: indicator !== 0, pendingLane: this.pending?.target ?? null, check: d.check,
+      accelProposals: d.accelProposals, laneProposals: d.laneProposals, notes: d.notes,
+      targetSpeed: ctx.cruise, limit,
+      signalRemaining: this.pending && d.signalLead !== null ? Math.max(0, d.signalLead - (world.time - this.pending.since)) : null,
     };
     return { accel, wantLane, indicator };
   }

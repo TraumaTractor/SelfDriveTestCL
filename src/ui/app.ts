@@ -139,7 +139,8 @@ export function startApp(root: HTMLElement): void {
 
   root.replaceChildren(header, h('main', {},
     h('div', { class: 'left' }, canvas, tiles),
-    h('aside', {}, tabBar, pane)));
+    h('aside', {}, tabBar, pane)),
+    h('div', { class: 'version', title: 'Self-Drive Test Bench version' }, `v${__APP_VERSION__}`));
 
   new ResizeObserver(() => renderer.resize()).observe(canvas);
   renderer.resize();
@@ -166,7 +167,7 @@ export function startApp(root: HTMLElement): void {
       if (steps >= 40) acc = 0;
       if (app.world.status !== 'running') { playing = false; status(); }
     }
-    renderer.draw(app.world, { zoom, showSensors: sensors, showLabels: labels, alpha: Math.min(1, acc / SIM_DT), report: app.driver.report });
+    renderer.draw(app.world, { zoom, showSensors: sensors, showLabels: labels, alpha: Math.min(1, acc / SIM_DT), report: app.driver.report, sensorRange: app.rules.get('keep-distance')?.params.range ?? 150 });
 
     uiTimer += dtReal;
     if (uiTimer > 0.2) {
