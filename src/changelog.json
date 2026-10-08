@@ -1,0 +1,63 @@
+[
+  {
+    "version": "0.8.0",
+    "title": "The app now updates itself",
+    "items": [
+      "New versions are downloaded in the background from GitHub - you just choose Restart when asked. Your rules and settings are kept.",
+      "Help → Check for Updates… checks on demand. A broken update rolls itself back automatically.",
+      "This \"What's new\" pop-up appears the first time you open each new version (click the version number in the corner to see it again)."
+    ]
+  },
+  {
+    "version": "0.7.0",
+    "title": "Windows app",
+    "items": [
+      "Runs as a standalone Windows app too: an installer and a portable .exe, built automatically on GitHub."
+    ]
+  },
+  {
+    "version": "0.6.0",
+    "title": "Standalone Mac app",
+    "items": [
+      "Runs as its own Mac app (.dmg) - no browser, server or internet needed.",
+      "Fixed silly braking numbers showing for cars right beside you."
+    ]
+  },
+  {
+    "version": "0.5.0",
+    "title": "Dashcam, decisions and an endless road",
+    "items": [
+      "Driver dashcam: a first-person view with rear-view mirror, tracked car, speed signs and indicators. Shown as an inset (click to enlarge), full screen, or hidden.",
+      "Decisions tab: a plain-English log of what the car decided and why, which rule was driving the speed, and how each lane change turned out.",
+      "Endless road: the motorway is now a loop that repeats lap after lap, with a lap counter and a ring showing where you are. Switch it off in the Traffic tab to finish after N laps."
+    ]
+  },
+  {
+    "version": "0.4.0",
+    "title": "Smarter overtaking",
+    "items": [
+      "Your car overtakes when the vehicle ahead will actually affect it, and moves over early - before it has to slow down.",
+      "New \"No undertaking\" rule: never pass on the inside (slow queues excepted).",
+      "Good drivers start in the slow lane, return to it, and only move right for a real reason. Default traffic density is a bit lighter."
+    ]
+  },
+  {
+    "version": "0.3.0",
+    "title": "Variable speed limits switch",
+    "items": ["Variable speed limits are now a toggle in the Traffic tab; off gives a constant 120 km/h."]
+  },
+  {
+    "version": "0.2.0",
+    "title": "Impact-based lane changes and a richer view",
+    "items": [
+      "Lane changes are judged by how much they would make the driver behind brake, not by distance alone.",
+      "The car's view shows the tracked vehicle's speed and momentum change, and a \"Thinking\" panel explains its reasoning.",
+      "Slow lane is now on the left, UK style. Version number added in the corner."
+    ]
+  },
+  {
+    "version": "0.1.0",
+    "title": "First version",
+    "items": ["Generated motorway, driver personalities from great to reckless, an editable rule stack for your car, scoring and batch tests."]
+  }
+]

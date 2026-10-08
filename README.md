@@ -44,7 +44,10 @@ background and asks **Restart now / Later**. Your rules and settings are kept. A
 (and is never retried). **Help → Check for Updates…** checks on demand.
 
 To publish an update:
-1. Bump `version` in `package.json` (the number shown in the app's corner) and merge to `main`.
+1. Bump `version` in `package.json` (the number shown in the app's corner), add a matching entry at the top of
+   `src/changelog.json` (a test fails if you forget), and merge to `main`. That entry becomes the update
+   notes in the *Restart now* dialog **and** the "What's new" pop-up shown the first time each new version is
+   opened (click the version number in the corner to see it again).
 2. Create a release with a matching tag, e.g. `v0.9.0` (GitHub → Releases → *Draft a new release* → *Create new
    tag on publish*). The *Build desktop apps* workflow then attaches the installers **and** `app-update.json`.
    (It refuses to publish if the tag and `package.json` version differ.)

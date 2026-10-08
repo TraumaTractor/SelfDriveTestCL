@@ -13,10 +13,17 @@ if (ref && /^v\d/.test(ref) && ref !== `v${pkg.version}`) {
   process.exit(1);
 }
 
+const entry = JSON.parse(readFileSync(new URL('../src/changelog.json', import.meta.url), 'utf8')).find((e) => e.version === pkg.version);
+if (!entry) {
+  console.error(`src/changelog.json has no entry for ${pkg.version}`);
+  process.exit(1);
+}
+const notes = process.env.UPDATE_NOTES ?? `${entry.title}\n${entry.items.map((i) => `• ${i}`).join('\n')}`;
+
 const bundle = buildBundle(new URL('../dist', import.meta.url).pathname, {
   version: pkg.version,
   shell: pkg.shellVersion ?? 1,
-  notes: process.env.UPDATE_NOTES ?? '',
+  notes,
 });
 mkdirSync(new URL('../release', import.meta.url), { recursive: true });
 const out = new URL('../release/app-update.json', import.meta.url);

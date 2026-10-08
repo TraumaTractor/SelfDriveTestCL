@@ -118,3 +118,20 @@ describe('checking for updates', () => {
     await expect(u.checkForUpdate({ ...base, fetchImpl, currentVersion: '0.8.0', updatesDir: tmp() })).rejects.toMatchObject({ code: 'offline' });
   });
 });
+
+describe('changelog', () => {
+  it('has an entry for the version in package.json (bump both together)', async () => {
+    const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')) as { version: string };
+    const { CHANGELOG } = await import('../src/changelog');
+    expect(CHANGELOG[0].version).toBe(pkg.version);
+    for (const e of CHANGELOG) expect(e.items.length).toBeGreaterThan(0);
+  });
+
+  it('shows only what is new since the last version seen', async () => {
+    const { entriesToShow } = await import('../src/changelog');
+    expect(entriesToShow('0.7.0', '0.8.0').map((e) => e.version)).toEqual(['0.8.0']);
+    expect(entriesToShow('0.5.0', '0.8.0').map((e) => e.version)).toEqual(['0.8.0', '0.7.0', '0.6.0']);
+    expect(entriesToShow(null, '0.8.0').map((e) => e.version)).toEqual(['0.8.0']); // first ever launch
+    expect(entriesToShow('0.8.0', '0.8.0')).toEqual([]);
+  });
+});

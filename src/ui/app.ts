@@ -7,6 +7,7 @@ import { World, defaultConfig, type WorldConfig } from '../sim/world';
 import { MS_TO_KMH } from '../common';
 import { h } from './dom';
 import { decisionsPanel } from './decisionsPanel';
+import { maybeShowWhatsNew, showWhatsNewNow } from './whatsNew';
 import { resultsPanel, setStale } from './resultsPanel';
 import { rulesPanel } from './rulesPanel';
 import type { App, Panel } from './state';
@@ -159,7 +160,7 @@ export function startApp(root: HTMLElement): void {
   root.replaceChildren(header, h('main', {},
     h('div', { class: 'left' }, stage, tiles),
     h('aside', {}, tabBar, pane)),
-    h('div', { class: 'version', title: 'Self-Drive Test Bench version' }, `v${__APP_VERSION__}`));
+    h('div', { class: 'version', title: "What's new", on: { click: () => showWhatsNewNow(__APP_VERSION__) } }, `v${__APP_VERSION__}`));
 
   new ResizeObserver(() => renderer.resize()).observe(canvas);
   new ResizeObserver(() => dashcam.resize()).observe(dashCanvas);
@@ -216,6 +217,7 @@ export function startApp(root: HTMLElement): void {
   (window as unknown as { __app: App }).__app = app;
   refreshUi();
   requestAnimationFrame(frame);
+  maybeShowWhatsNew(__APP_VERSION__);
 }
 
 export type { Panel };
