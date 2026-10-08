@@ -157,17 +157,18 @@ const returnSlowLane: RuleImpl = {
 
 const laneSafety: RuleImpl = {
   def: {
-    id: 'lane-change-safety', name: 'Lane-change safety check', phase: 'post',
-    description: 'Vetoes any lane change unless the gaps ahead and behind in the target lane are big enough. Disable it to see what happens.',
+    id: 'lane-change-safety', name: 'Lane-change impact check', phase: 'post',
+    description: 'Vetoes a lane change if it would force the driver behind to brake hard. Judged by closing speed, not just distance: a fast car behind is affected even from far back, while one crawling behind barely notices a tight gap. Disable it to see what happens.',
     params: [
-      { key: 'minGap', label: 'Base gap', min: 0, max: 15, step: 0.5, unit: 'm', default: 5 },
-      { key: 'headway', label: 'Gap headway', min: 0, max: 3, step: 0.1, unit: 's', default: 1.0 },
-      { key: 'closing', label: 'Closing-speed margin', min: 0, max: 5, step: 0.1, unit: 's', default: 2.0 },
+      { key: 'maxImpact', label: 'Max braking imposed on them', min: 0, max: 6, step: 0.1, unit: 'm/s²', default: 1.0 },
+      { key: 'maxSelfDecel', label: 'Max braking I accept', min: 0.5, max: 8, step: 0.1, unit: 'm/s²', default: 2.5 },
+      { key: 'minGap', label: 'Absolute min gap', min: 0.5, max: 10, step: 0.5, unit: 'm', default: 2 },
     ],
   },
   run(ctx, p, d) {
     if (d.lane === null) return;
-    const r = ctx.gapCheck(d.lane, p.minGap, p.headway, p.closing);
+    const r = ctx.mergeCheck(d.lane, p.maxImpact, p.maxSelfDecel, p.minGap);
+    d.check = r;
     if (!r.ok) d.veto('lane-change-safety', r.reason);
   },
 };

@@ -1,7 +1,7 @@
 import { speedLimitAt } from '../sim/road';
 import type { Decision, Driver, Indicator, Vehicle } from '../sim/vehicle';
 import type { World } from '../sim/world';
-import { Ctx, Draft } from './context';
+import { Ctx, Draft, type MergeCheck } from './context';
 import { RuleSet, runStack } from './rules';
 
 /** What the rule stack decided last tick - used for the on-screen explanation. */
@@ -15,12 +15,14 @@ export interface EgoReport {
   accel: number;
   signalling: boolean;
   pendingLane: number | null;
+  /** impact assessment of the lane change currently being considered */
+  check: MergeCheck | null;
 }
 
 export class EgoDriver implements Driver {
   report: EgoReport = {
     accelBy: null, laneBy: null, vetoBy: null, vetoReason: '', clampedBy: null,
-    emergency: false, accel: 0, signalling: false, pendingLane: null,
+    emergency: false, accel: 0, signalling: false, pendingLane: null, check: null,
   };
 
   private lastChangeEnd = -Infinity;
@@ -73,7 +75,7 @@ export class EgoDriver implements Driver {
     this.report = {
       accelBy: d.accelBy, laneBy: d.laneBy, vetoBy: d.vetoBy, vetoReason: d.vetoReason,
       clampedBy: d.clampedBy, emergency: d.emergency, accel,
-      signalling: indicator !== 0, pendingLane: this.pending?.target ?? null,
+      signalling: indicator !== 0, pendingLane: this.pending?.target ?? null, check: d.check,
     };
     return { accel, wantLane, indicator };
   }

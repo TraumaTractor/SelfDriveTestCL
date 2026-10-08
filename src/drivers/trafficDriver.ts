@@ -1,5 +1,6 @@
 import { clamp } from '../common';
 import { idm, type IdmParams } from '../sim/idm';
+import { mergeImpact } from '../sim/impact';
 import type { Rng } from '../sim/rng';
 import { rampAt, speedLimitAt } from '../sim/road';
 import { bumperGap, occupies, type Decision, type Driver, type Indicator, type Vehicle } from '../sim/vehicle';
@@ -193,30 +194,25 @@ export class TrafficDriver implements Driver {
     return best;
   }
 
-  /** Gap acceptance for moving into `target`. `scale` loosens/tightens the required gaps. */
-  private isSafe(w: World, me: Vehicle, target: number, v0: number, scale: number, decelBoost = 1): boolean {
+  /**
+   * Is moving into `target` acceptable? Judged mainly by the impact on the driver behind (how hard
+   * they must brake, which depends on how fast they are closing) and on ourselves, with a small
+   * absolute gap floor. `scale` < 1 loosens the tolerances (urgency), > 1 tightens them.
+   */
+  private isSafe(w: World, me: Vehicle, target: number, _v0: number, scale: number, boost = 1): boolean {
     const p = this.p;
     if (target < 0 && !me.onRamp) return false;
-    const lead = w.leaderIn(me, target);
-    const fol = w.followerIn(me, target);
-    const factor = p.gapFactor * scale;
+    const im = mergeImpact(w, me, target);
+    const tol = boost / Math.max(scale, 0.3);
+    const floor = Math.max(0.8, p.minGap * p.gapFactor * 0.5);
 
-    if (lead) {
-      const need = p.minGap + factor * (0.5 * me.v + 1.5 * Math.max(0, me.v - lead.veh.v));
-      if (lead.gap < need) return false;
-    }
-    if (fol) {
-      const f = fol.veh;
-      const need = p.minGap + factor * (0.4 * f.v + 1.5 * Math.max(0, f.v - me.v));
-      if (fol.gap < need) return false;
-      const aF = idm(f.idm, f.v, Math.max(f.v0, f.v), fol.gap, f.v - me.v);
-      if (aF < -p.safeDecel * decelBoost) return false;
-    }
+    if (im.followerGap < floor || im.leaderGap < floor) return false;
+    if (im.imposedDecel > p.safeDecel * tol) return false;
+    if (im.selfDecel > (p.decel + (2 - p.gapFactor)) * tol) return false;
     // someone else already changing into the same lane right beside us
     for (const o of w.vehiclesInLane(target)) {
       if (o !== me && !occupies(me, target) && Math.abs(o.s - me.s) < (o.length + me.length) / 2 + 3 && o.changing) return false;
     }
-    void v0;
     return true;
   }
 }

@@ -37,7 +37,7 @@ export const PRESETS: Preset[] = [
       tweak(s, 'keep-speed', { speedFactor: 0.9 });
       tweak(s, 'keep-distance', { headway: 2.4, comfortDecel: 1.6, maxAccel: 1.2 });
       tweak(s, 'yield-to-merging', { lookahead: 70, extraHeadway: 1.2 });
-      tweak(s, 'lane-change-safety', { minGap: 8, headway: 1.5 });
+      tweak(s, 'lane-change-safety', { maxImpact: 0.4, maxSelfDecel: 1.5, minGap: 6 });
       tweak(s, 'signal', { leadTime: 3 });
       tweak(s, 'comfort-limit', { maxAccel: 1.3, maxDecel: 2.5 });
       return s;
@@ -52,7 +52,7 @@ export const PRESETS: Preset[] = [
       tweak(s, 'keep-distance', { headway: 0.7, minGap: 1.5, comfortDecel: 3.5, maxAccel: 2.8 });
       tweak(s, 'yield-to-merging', {}, false);
       tweak(s, 'overtake', { speedGain: 1, cooldown: 2 });
-      tweak(s, 'lane-change-safety', { minGap: 1.5, headway: 0.3, closing: 0.5 });
+      tweak(s, 'lane-change-safety', { maxImpact: 4.5, maxSelfDecel: 6, minGap: 1 });
       tweak(s, 'signal', { leadTime: 0.3 });
       tweak(s, 'comfort-limit', { maxAccel: 3.5, maxDecel: 6 });
       return s;

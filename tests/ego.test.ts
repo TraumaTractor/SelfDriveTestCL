@@ -72,6 +72,25 @@ describe('ego rule stack', () => {
     expect(unsafe.driver.report.laneBy).toBe('overtake');
   });
 
+  it('judges a lane change by impact on the driver behind, not just distance', () => {
+    const setup = (follower: Vehicle) => {
+      const sc = scenario(new RuleSet(), [car(50, 345, 1, 12), follower]);
+      sc.world.ego.v = 25;
+      sc.world.step(0.05);
+      return sc.driver.report;
+    };
+    // fast car 30 m back in the target lane: a "safe" distance, but it would have to brake hard
+    const fast = setup(car(51, 269, 2, 35));
+    expect(fast.vetoBy).toBe('lane-change-safety');
+    expect(fast.check?.impact?.imposedDecel).toBeGreaterThan(1);
+
+    // crawling car only ~3 m back: much closer, but it is barely affected
+    const crawling = setup(car(52, 292, 2, 3));
+    expect(crawling.vetoBy).toBeNull();
+    expect(crawling.laneBy).toBe('overtake');
+    expect(crawling.check?.impact?.imposedDecel).toBeLessThan(0.5);
+  });
+
   it('yields to a car signalling into the ego lane', () => {
     const merger = car(60, 330, 0, 25);
     merger.indicator = 1;

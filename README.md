@@ -42,6 +42,21 @@ Built-in rules: emergency brake · keep following distance (IDM) · yield to mer
 limit · move over for on-ramp · overtake slow vehicles · return to slow lane · lane-change safety ·
 signal before lane change · comfort limits.
 
+### Lane-change safety is about impact, not distance
+
+Before pulling out, the car (and every traffic driver) asks *how much harder will the driver behind have to
+brake?* A car closing fast is affected even from a long way back, while one crawling behind barely notices a
+short gap. The ego's **Lane-change impact check** rule has three knobs: the braking it will impose on them,
+the braking it will accept itself, and an absolute minimum gap. Each driver personality has its own
+"impact on others tolerated".
+
+### What the car sees
+
+The canvas shows the car's view ahead: the forward sensor field, the tracked vehicle (its speed, acceleration
+and momentum change in kN, closing speed and time-to-collision), and, while a lane change is being
+considered, the driver it would pull in front of with the braking it would cause (green = acceptable, red =
+vetoed).
+
 ## Layout
 
 ```

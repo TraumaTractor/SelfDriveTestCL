@@ -11,6 +11,8 @@ export interface RenderOptions {
   showLabels: boolean;
   alpha: number;
   report: EgoReport | null;
+  /** forward sensor range in metres */
+  sensorRange: number;
 }
 
 const Y_STRETCH = 1.8; // exaggerate lateral scale so lanes are readable
@@ -20,6 +22,7 @@ export class Renderer {
   private w = 0;
   private h = 0;
   private dpr = 1;
+  private smoothA = new Map<number, number>();
 
   constructor(private canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -213,20 +216,83 @@ export class Renderer {
     const ex = xOf(lerp(ego.prevS, ego.s, o.alpha));
     const ey = yOf(lerp(ego.prevY, ego.y, o.alpha));
 
-    const lead = world.leaderAhead(ego);
-    if (lead) {
-      const lx = xOf(lead.veh.s);
-      const ly = yOf(lead.veh.y);
-      const danger = lead.gap / Math.max(ego.v, 1) < 1;
+    // forward sensor field in our lane
+    const reach = o.sensorRange * sx;
+    const grad = ctx.createLinearGradient(ex, 0, ex + reach, 0);
+    grad.addColorStop(0, 'rgba(53,224,255,0.16)');
+    grad.addColorStop(1, 'rgba(53,224,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(ex + ego.length * sx / 2, ey - laneH * 0.48, reach, laneH * 0.96);
+
+    const t = this.tracked(world);
+    if (t) {
+      const lead = t.veh;
+      const lx = xOf(lerp(lead.prevS, lead.s, o.alpha));
+      const ly = yOf(lerp(lead.prevY, lead.y, o.alpha));
+      const danger = t.gap / Math.max(ego.v, 1) < 1;
       ctx.strokeStyle = danger ? '#ff4d6a' : '#35e0ff';
       ctx.lineWidth = 1.5;
       ctx.setLineDash([4, 3]);
       ctx.beginPath();
       ctx.moveTo(ex + ego.length * sx / 2, ey);
-      ctx.lineTo(lx - lead.veh.length * sx / 2, ly);
+      ctx.lineTo(lx - lead.length * sx / 2, ly);
       ctx.stroke();
       ctx.setLineDash([]);
-      this.text(`${lead.gap.toFixed(0)} m · ${(lead.gap / Math.max(ego.v, 0.1)).toFixed(1)} s`, (ex + lx) / 2, Math.min(ey, ly) - laneH * 0.55, '#35e0ff', 11, 'center');
+      this.text(`${t.gap.toFixed(0)} m · ${(t.gap / Math.max(ego.v, 0.1)).toFixed(1)} s`, (ex + lx) / 2, Math.min(ey, ly) + laneH * 0.62, danger ? '#ff4d6a' : '#35e0ff', 11, 'center');
+
+      // tracking tag attached to the tracked vehicle
+      const accCol = t.a < -0.8 ? '#ff4d6a' : t.a > 0.8 ? '#3ecf8e' : '#cfd6e0';
+      const arrow = t.a < -0.8 ? '▼' : t.a > 0.8 ? '▲' : '■';
+      const l1 = `${t.name} · ${(lead.v * MS_TO_KMH).toFixed(0)} km/h`;
+      const l2 = `${arrow} ${t.a >= 0 ? '+' : ''}${t.a.toFixed(1)} m/s²  (${t.kN >= 0 ? '+' : ''}${t.kN.toFixed(1)} kN)`;
+      const w = 150, hgt = 34;
+      const tx = Math.min(Math.max(lx - w / 2, 6), this.w - w - 6);
+      const ty = ly - laneH * 0.5 - hgt - 4;
+      ctx.fillStyle = 'rgba(10,14,20,0.82)';
+      roundRect(ctx, tx, ty, w, hgt, 6);
+      ctx.fill();
+      ctx.strokeStyle = danger ? '#ff4d6a' : 'rgba(53,224,255,0.7)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      this.text(l1, tx + 8, ty + 14, '#ffffff', 11);
+      this.text(l2, tx + 8, ty + 28, accCol, 11);
+      // bracket around the tracked car
+      ctx.strokeStyle = danger ? '#ff4d6a' : '#35e0ff';
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(lx - lead.length * sx / 2 - 3, ly - laneH * 0.36, lead.length * sx + 6, laneH * 0.72);
+    }
+
+    // impact of the lane change currently under consideration on the driver it would pull in front of
+    const chk = o.report?.check;
+    const im = chk?.impact;
+    if (chk && im && im.follower) {
+      const f = im.follower;
+      const fx = xOf(lerp(f.prevS, f.s, o.alpha));
+      const fy = yOf(lerp(f.prevY, f.y, o.alpha));
+      const col = chk.ok ? '#3ecf8e' : '#ff4d6a';
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(fx, fy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.strokeRect(fx - f.length * sx / 2 - 3, fy - laneH * 0.36, f.length * sx + 6, laneH * 0.72);
+      const closingKmh = im.followerClosing * MS_TO_KMH;
+      const l1 = `they would brake ${im.imposedDecel.toFixed(1)} m/s² (limit ${chk.limit.toFixed(1)})`;
+      const l2 = `${im.followerGap.toFixed(0)} m back · ${closingKmh >= 0 ? '+' : ''}${closingKmh.toFixed(0)} km/h vs us`;
+      const w = 205, hgt = 34;
+      const tx = Math.min(Math.max(fx - w / 2, 6), this.w - w - 6);
+      const ty = fy + laneH * 0.5 + 4;
+      ctx.fillStyle = 'rgba(10,14,20,0.85)';
+      roundRect(ctx, tx, ty, w, hgt, 6);
+      ctx.fill();
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      this.text(l1, tx + 8, ty + 14, col, 11);
+      this.text(l2, tx + 8, ty + 28, '#cfd6e0', 11);
     }
     const rep = o.report;
     if (rep && rep.pendingLane !== null) {
@@ -246,6 +312,24 @@ export class Renderer {
     }
   }
 
+  /** The vehicle the ego is currently tracking: whatever is ahead in its lane. */
+  private tracked(world: World): { veh: Vehicle; gap: number; a: number; kN: number; name: string; closing: number; ttc: number } | null {
+    const lead = world.leaderAhead(world.ego);
+    if (!lead) return null;
+    const v = lead.veh;
+    const prev = this.smoothA.get(v.id) ?? v.a;
+    const a = prev + (v.a - prev) * 0.12;
+    this.smoothA.set(v.id, a);
+    if (this.smoothA.size > 200) this.smoothA.clear();
+    const mass = v.length > 6 ? 12000 : 1500;
+    const closing = world.ego.v - v.v;
+    return {
+      veh: v, gap: lead.gap, a, kN: (mass * a) / 1000, closing,
+      ttc: closing > 0.3 ? Math.max(lead.gap, 0) / closing : Infinity,
+      name: v.crashed ? 'Wreck' : (world.cfg.personalities[v.label as keyof typeof world.cfg.personalities]?.name ?? v.label),
+    };
+  }
+
   private hud(world: World, o: RenderOptions): void {
     const { ctx } = this;
     const ego = world.ego;
@@ -259,6 +343,7 @@ export class Renderer {
     this.text(`limit ${(limit * MS_TO_KMH).toFixed(0)}`, 22, 68, ego.v > limit * 1.02 ? '#ff9340' : '#8d94a0', 11);
     this.text(`lane ${ego.targetLane + 1}/${world.road.lanes}${rampAt(world.road, ego.s) ? ' · ramp zone' : ''}`, 100, 68, '#8d94a0', 11);
 
+    let hudBottom = 84;
     const r = o.report;
     if (r) {
       const lines: string[] = [];
@@ -270,6 +355,21 @@ export class Renderer {
       roundRect(ctx, 10, 84, 260, 10 + lines.length * 16, 8);
       ctx.fill();
       lines.forEach((l, i) => this.text(l, 20, 101 + i * 16, r.emergency && i === lines.length - 1 ? '#ff4d6a' : i === 2 ? '#ffb000' : '#cfd6e0', 12));
+      hudBottom = 84 + 10 + lines.length * 16;
+    }
+
+    const t = this.tracked(world);
+    ctx.fillStyle = 'rgba(10,14,20,0.78)';
+    roundRect(ctx, 10, hudBottom + 8, 260, 66, 8);
+    ctx.fill();
+    this.text('TRACKING', 20, hudBottom + 23, '#35e0ff', 10);
+    if (t) {
+      const accCol = t.a < -0.8 ? '#ff4d6a' : t.a > 0.8 ? '#3ecf8e' : '#cfd6e0';
+      this.text(`${t.name} · ${(t.veh.v * MS_TO_KMH).toFixed(0)} km/h · ${t.gap.toFixed(0)} m ahead`, 20, hudBottom + 39, '#ffffff', 12);
+      this.text(`momentum ${t.kN >= 0 ? '+' : ''}${t.kN.toFixed(1)} kN (${t.a >= 0 ? '+' : ''}${t.a.toFixed(1)} m/s²)`, 20, hudBottom + 54, accCol, 12);
+      this.text(`closing ${t.closing >= 0 ? '+' : ''}${(t.closing * MS_TO_KMH).toFixed(0)} km/h · TTC ${Number.isFinite(t.ttc) ? t.ttc.toFixed(1) + ' s' : '—'}`, 20, hudBottom + 69, t.ttc < 2.5 ? '#ff9340' : '#cfd6e0', 12);
+    } else {
+      this.text('nothing ahead in range', 20, hudBottom + 42, '#8d94a0', 12);
     }
 
     // progress strip

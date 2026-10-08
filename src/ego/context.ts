@@ -1,4 +1,5 @@
 import type { ParamDef } from '../common';
+import { mergeImpact, type MergeImpact } from '../sim/impact';
 import type { Indicator, Vehicle } from '../sim/vehicle';
 import type { World } from '../sim/world';
 
@@ -64,29 +65,39 @@ export class Ctx {
   }
 
   /**
-   * Is it safe to move into `target`? Uses time-headway based gaps plus a closing-speed term.
+   * Is it acceptable to move into `target`? Judged by the impact on the driver behind (how much
+   * harder they must brake - which depends on how fast they are closing, not just the distance)
+   * and by how hard we must brake to match the new leader.
    */
-  gapCheck(target: number, minGap: number, headway: number, closing: number): { ok: boolean; reason: string } {
+  mergeCheck(target: number, maxImpact: number, maxSelfDecel: number, minGap: number): MergeCheck {
     const { world, me } = this;
-    if (target < 0 || target >= world.cfg.lanes) return { ok: false, reason: 'no such lane' };
-    const lead = world.leaderIn(me, target);
-    const fol = world.followerIn(me, target);
-    if (lead) {
-      const need = minGap + headway * 0.6 * me.v + closing * Math.max(0, me.v - lead.veh.v);
-      if (lead.gap < need) return { ok: false, reason: `gap ahead ${lead.gap.toFixed(0)}m < ${need.toFixed(0)}m` };
+    const empty = { impact: null, ok: false, reason: 'no such lane', limit: maxImpact };
+    if (target < 0 || target >= world.cfg.lanes) return empty;
+    const im = mergeImpact(world, me, target);
+    const info = (ok: boolean, reason: string): MergeCheck => ({ impact: im, ok, reason, limit: maxImpact });
+
+    if (im.followerGap < minGap) return info(false, `only ${Math.max(im.followerGap, 0).toFixed(1)}m clear behind`);
+    if (im.leaderGap < minGap) return info(false, `only ${Math.max(im.leaderGap, 0).toFixed(1)}m clear ahead`);
+    if (im.imposedDecel > maxImpact) {
+      const who = im.follower ? ` (${im.followerClosing >= 0 ? '+' : ''}${(im.followerClosing * 3.6).toFixed(0)} km/h, ${im.followerGap.toFixed(0)}m back)` : '';
+      return info(false, `would make them brake ${im.imposedDecel.toFixed(1)} m/s²${who}`);
     }
-    if (fol) {
-      const f = fol.veh;
-      const need = minGap + headway * f.v + closing * Math.max(0, f.v - me.v);
-      if (fol.gap < need) return { ok: false, reason: `gap behind ${fol.gap.toFixed(0)}m < ${need.toFixed(0)}m` };
-    }
+    if (im.selfDecel > maxSelfDecel) return info(false, `I'd need ${im.selfDecel.toFixed(1)} m/s² to match the car ahead`);
     for (const o of world.vehiclesInLane(target)) {
       if (o !== me && o.changing && Math.abs(o.s - me.s) < (o.length + me.length) / 2 + 4) {
-        return { ok: false, reason: 'another car is moving into that lane' };
+        return info(false, 'another car is moving into that lane');
       }
     }
-    return { ok: true, reason: '' };
+    return info(true, '');
   }
+}
+
+export interface MergeCheck {
+  impact: MergeImpact | null;
+  ok: boolean;
+  reason: string;
+  /** the tolerated impact, for display */
+  limit: number;
 }
 
 /** Accumulates the output of the rule stack for one tick. */
@@ -103,6 +114,8 @@ export class Draft {
   vetoBy: string | null = null;
   vetoReason = '';
   clampedBy: string | null = null;
+  /** the last lane-change impact assessment, for display */
+  check: MergeCheck | null = null;
 
   /** Accel proposals are resolved most-restrictive-wins. */
   proposeAccel(by: string, a: number, emergency = false): void {
