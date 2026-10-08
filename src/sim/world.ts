@@ -13,6 +13,8 @@ export interface WorldConfig {
   seed: number;
   lanes: number;
   length: number;
+  /** vary the posted speed limit along the road (off = constant 120 km/h) */
+  variableLimits: boolean;
   /** vehicles per km per lane */
   density: number;
   /** vehicles per minute joining from each on-ramp */
@@ -30,6 +32,7 @@ export function defaultConfig(): WorldConfig {
     seed: 1,
     lanes: 3,
     length: 6000,
+    variableLimits: true,
     density: 14,
     rampRate: 6,
     mix: { great: 3, average: 5, cautious: 2, aggressive: 2, reckless: 1 },
@@ -81,7 +84,7 @@ export class World {
   constructor(cfg: WorldConfig, egoDriver: Driver) {
     this.cfg = cfg;
     this.rng = new Rng(cfg.seed);
-    this.road = generateRoad(this.rng, { lanes: cfg.lanes, length: cfg.length });
+    this.road = generateRoad(this.rng, { lanes: cfg.lanes, length: cfg.length, variableLimits: cfg.variableLimits });
     this.metrics = new EgoMetrics();
 
     const egoLane = Math.min(1, cfg.lanes - 1);

@@ -111,6 +111,18 @@ describe('lane discipline', () => {
   });
 });
 
+describe('variable speed limits', () => {
+  it('can be switched off without changing the rest of the scenario', () => {
+    const on = new World({ ...defaultConfig(), seed: 5, variableLimits: true }, new EgoDriver(new RuleSet()));
+    const off = new World({ ...defaultConfig(), seed: 5, variableLimits: false }, new EgoDriver(new RuleSet()));
+    expect(on.road.zones.length).toBeGreaterThan(1);
+    expect(off.road.zones).toHaveLength(1);
+    expect(off.road.zones[0].limit).toBeCloseTo(33.3);
+    expect(off.road.ramps).toEqual(on.road.ramps);
+    expect(off.vehicles.length).toBe(on.vehicles.length);
+  });
+});
+
 describe('rule set', () => {
   it('round-trips through JSON', () => {
     const s = new RuleSet();

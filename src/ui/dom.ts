@@ -16,6 +16,19 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K, props: Props = 
   return el;
 }
 
+export interface ToggleOpts {
+  label: string;
+  value: boolean;
+  hint?: string;
+  onChange: (v: boolean) => void;
+}
+
+/** iOS-style switch. */
+export function toggle(o: ToggleOpts): HTMLElement {
+  const input = h('input', { type: 'checkbox', checked: o.value, role: 'switch', on: { change: () => o.onChange(input.checked) } });
+  return h('label', { class: 'switch', title: o.hint ?? '' }, h('span', { class: 'sl-label' }, o.label), input, h('span', { class: 'track' }, h('span', { class: 'thumb' })));
+}
+
 export interface SliderOpts {
   label: string;
   min: number;

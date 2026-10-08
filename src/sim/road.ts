@@ -24,7 +24,9 @@ export interface Road {
 
 const LIMITS = [33.3, 33.3, 33.3, 27.8, 22.2]; // 120, 120, 120, 100, 80 km/h
 
-export function generateRoad(rng: Rng, opts: { lanes: number; length: number }): Road {
+export const CONSTANT_LIMIT = 33.3; // 120 km/h
+
+export function generateRoad(rng: Rng, opts: { lanes: number; length: number; variableLimits?: boolean }): Road {
   const { lanes, length } = opts;
 
   const zones: SpeedZone[] = [];
@@ -34,6 +36,13 @@ export function generateRoad(rng: Rng, opts: { lanes: number; length: number }):
     const limit = s === 0 ? 33.3 : LIMITS[rng.int(0, LIMITS.length - 1)];
     zones.push({ start: s, end: Math.min(length, s + len), limit });
     s += len;
+  }
+
+  // Zones are always drawn from the RNG so the rest of the scenario (ramps, traffic) is identical
+  // whether or not variable limits are switched on.
+  if (opts.variableLimits === false) {
+    zones.length = 0;
+    zones.push({ start: 0, end: length, limit: CONSTANT_LIMIT });
   }
 
   const ramps: Ramp[] = [];

@@ -1,5 +1,5 @@
 import { PERSONALITIES, PERSONALITY_IDS, PERSONALITY_PARAMS, clonePersonalities } from '../drivers/personality';
-import { h, slider } from './dom';
+import { h, slider, toggle } from './dom';
 import type { App, Panel } from './state';
 
 export function trafficPanel(app: App): Panel {
@@ -18,6 +18,11 @@ export function trafficPanel(app: App): Panel {
         h('button', { class: 'primary', on: { click: () => app.restart() } }, '↻ Restart')),
       h('p', { class: 'note' }, 'Same seed + same settings = identical road and traffic every time, so you can compare rule changes fairly. Changes below apply on restart.'),
       h('h4', {}, 'Road'),
+      toggle({
+        label: 'Variable speed limits', value: cfg.variableLimits,
+        hint: 'On: the posted limit changes along the road (120 / 100 / 80 km/h zones). Off: a constant 120 km/h.',
+        onChange: (v) => { cfg.variableLimits = v; app.trafficDirty(); },
+      }),
       slider({ label: 'Lanes', min: 2, max: 5, step: 1, value: cfg.lanes, onInput: (v) => { cfg.lanes = v; app.trafficDirty(); } }),
       slider({ label: 'Length', min: 2000, max: 15000, step: 500, unit: 'm', value: cfg.length, onInput: (v) => { cfg.length = v; app.trafficDirty(); } }),
       slider({ label: 'Traffic density', min: 3, max: 35, step: 1, unit: 'veh/km/lane', value: cfg.density, onInput: (v) => { cfg.density = v; app.trafficDirty(); } }),
