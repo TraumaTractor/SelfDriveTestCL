@@ -8,7 +8,7 @@ const still: Driver = { decide: () => ({ accel: 0, wantLane: null, indicator: 0 
 
 function car(id: number, s: number, lane: number, v: number): Vehicle {
   return {
-    id, kind: 'traffic', label: 'test', color: '#fff', s, y: lane, prevS: s, prevY: lane, v, a: 0,
+    id, kind: 'traffic', type: 'car', label: 'test', color: '#fff', s, y: lane, prevS: s, prevY: lane, v, a: 0,
     length: 4.5, width: 1.9, targetLane: lane, changing: false, indicator: 0, indicatorSince: 0, changeStart: 0,
     onRamp: false, crashed: false, crashTime: 0, idm: { a: 1.5, b: 2, T: 1.5, s0: 2 }, v0: v, driver: still,
   };

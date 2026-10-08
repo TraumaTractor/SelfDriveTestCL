@@ -2,6 +2,7 @@ import { RULE_BY_ID } from '../ego/rules';
 import type { DecisionKind, DecisionRecord } from '../ego/decisions';
 import { h } from './dom';
 import type { App, Panel } from './state';
+import * as U from '../units';
 
 const ruleName = (id: string): string => RULE_BY_ID[id]?.def.name ?? id;
 const FILTERS: [string, DecisionKind[] | null][] = [
@@ -36,13 +37,13 @@ export function decisionsPanel(_app: App): Panel {
   function card(r: DecisionRecord): HTMLElement {
     const s = r.snapshot;
     const detail = h('div', { class: 'dec-detail' },
-      h('div', {}, `Situation: lane ${s.lane}, ${(s.speed * 3.6).toFixed(0)} km/h (target ${(s.target * 3.6).toFixed(0)}, limit ${(s.limit * 3.6).toFixed(0)})`),
+      h('div', {}, `Situation: lane ${s.lane}, ${U.speed(s.speed)} (target ${U.speed(s.target)}, limit ${U.speed(s.limit)})`),
       h('div', {}, s.leader
-        ? `Ahead: ${s.leader.name} at ${s.leader.kmh.toFixed(0)} km/h, ${s.leader.gap.toFixed(0)} m${s.leader.ttc ? `, TTC ${s.leader.ttc.toFixed(1)} s` : ''}`
+        ? `Ahead: ${s.leader.name} at ${U.speed(s.leader.v)}, ${U.dist(s.leader.gap)}${s.leader.ttc ? `, TTC ${s.leader.ttc.toFixed(1)} s` : ''}`
         : 'Ahead: nothing in range'),
       ...(r.proposals.length ? [h('div', { class: 'dec-props' }, 'Acceleration proposals at that moment:'),
         ...[...r.proposals].sort((a, b) => a.a - b.a).map((p, i) =>
-          h('div', {}, `${i === 0 ? '▶' : '  '} ${ruleName(p.by)}: ${p.a >= 0 ? '+' : '−'}${Math.abs(p.a).toFixed(1)} m/s²`))] : []));
+          h('div', {}, `${i === 0 ? '▶' : '  '} ${ruleName(p.by)}: ${U.accel(p.a, true)}`))] : []));
     detail.hidden = !open.has(r.id);
     const c = h('div', { class: `dec ${r.kind} ${r.tone ?? ''}`, on: { click: () => {
       if (open.has(r.id)) open.delete(r.id); else open.add(r.id);

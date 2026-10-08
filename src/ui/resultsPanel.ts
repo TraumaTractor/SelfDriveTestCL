@@ -1,8 +1,8 @@
-import { MS_TO_KMH } from '../common';
 import { runHeadless, type RunSummary } from '../sim/headless';
 import type { Scores } from '../sim/metrics';
 import { h } from './dom';
 import type { App, Panel } from './state';
+import * as U from '../units';
 
 interface Batch {
   runs: RunSummary[];
@@ -81,17 +81,19 @@ export function resultsPanel(app: App): Panel {
         row('Hard brakes / run', b.hardBrakes, base?.hardBrakes, false),
         row('Unsignalled changes / run', b.unsignalled, base?.unsignalled, false),
         row('Cut-offs / run', b.cutOffs, base?.cutOffs, false),
-        row('Average speed (km/h)', b.avgSpeed * MS_TO_KMH, base ? base.avgSpeed * MS_TO_KMH : undefined, true)),
+        row(`Average speed (${U.speedUnit()})`, U.speedValue(b.avgSpeed), base ? U.speedValue(base.avgSpeed) : undefined, true)),
       h('div', { class: 'row', style: 'margin-top:8px' },
         h('button', { class: 'small', on: { click: () => { baseline = b; renderBatch(); } } }, 'Set as baseline'),
         baseline ? h('button', { class: 'small', on: { click: () => { baseline = null; renderBatch(); } } }, 'Clear baseline') : null),
       h('details', {}, h('summary', {}, 'Per seed'),
         h('table', {},
-          h('tr', {}, h('th', {}, 'seed'), h('th', {}, 'result'), h('th', {}, 'score'), h('th', {}, 'NM'), h('th', {}, 'km/h')),
+          h('tr', {}, h('th', {}, 'seed'), h('th', {}, 'result'), h('th', {}, 'score'), h('th', {}, 'NM'), h('th', {}, U.speedUnit())),
           ...b.runs.map((r) => h('tr', {}, h('td', {}, String(r.seed)), h('td', {}, r.status), h('td', {}, r.scores.overall.toFixed(0)),
-            h('td', {}, String(r.nearMisses)), h('td', {}, (r.avgSpeed * MS_TO_KMH).toFixed(0)))))),
+            h('td', {}, String(r.nearMisses)), h('td', {}, U.speedValue(r.avgSpeed).toFixed(0)))))),
     );
   }
+
+  U.onUnitsChange(() => renderBatch());
 
   runBtn.addEventListener('click', async () => {
     if (running) return;

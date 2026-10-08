@@ -1,3 +1,4 @@
+import { VEHICLE_SPECS, VEHICLE_TYPES } from '../sim/vehicle';
 import { PERSONALITIES, PERSONALITY_IDS, PERSONALITY_PARAMS, clonePersonalities } from '../drivers/personality';
 import { h, slider, toggle } from './dom';
 import type { App, Panel } from './state';
@@ -20,7 +21,7 @@ export function trafficPanel(app: App): Panel {
       h('h4', {}, 'Road'),
       toggle({
         label: 'Variable speed limits', value: cfg.variableLimits,
-        hint: 'On: the posted limit changes along the road (120 / 100 / 80 km/h zones). Off: a constant 120 km/h.',
+        hint: 'On: the posted limit changes along the road (120 / 100 / 80 km/h, or 75 / 62 / 50 mph, zones). Off: a constant 120 km/h (75 mph).',
         onChange: (v) => { cfg.variableLimits = v; app.trafficDirty(); },
       }),
       toggle({
@@ -30,9 +31,15 @@ export function trafficPanel(app: App): Panel {
       }),
       ...(cfg.endless ? [] : [slider({ label: 'Laps before finishing', min: 1, max: 10, step: 1, value: cfg.laps, onInput: (v) => { cfg.laps = v; app.trafficDirty(); } })]),
       slider({ label: 'Lanes', min: 2, max: 5, step: 1, value: cfg.lanes, onInput: (v) => { cfg.lanes = v; app.trafficDirty(); } }),
-      slider({ label: 'Loop length', min: 2000, max: 15000, step: 500, unit: 'm', value: cfg.length, onInput: (v) => { cfg.length = v; app.trafficDirty(); } }),
+      slider({ label: 'Loop length', min: 2000, max: 15000, step: 500, unit: 'long-m', value: cfg.length, onInput: (v) => { cfg.length = v; app.trafficDirty(); } }),
       slider({ label: 'Traffic density', min: 3, max: 35, step: 1, unit: 'veh/km/lane', value: cfg.density, onInput: (v) => { cfg.density = v; app.trafficDirty(); } }),
       slider({ label: 'On-ramp flow', min: 0, max: 20, step: 1, unit: 'veh/min', value: cfg.rampRate, onInput: (v) => { cfg.rampRate = v; app.trafficDirty(); } }),
+      h('h4', {}, 'Vehicle mix'),
+      ...VEHICLE_TYPES.map((t) => slider({
+        label: VEHICLE_SPECS[t].label, min: 0, max: 100, step: 1, value: cfg.vehicleMix[t],
+        hint: VEHICLE_SPECS[t].heavy ? 'Heavy vehicles keep out of the fastest lane (3+ lane roads) and are speed limited.' : undefined,
+        onInput: (v) => { cfg.vehicleMix[t] = v; app.trafficDirty(); },
+      })),
       h('h4', {}, 'Driver mix'),
     );
 

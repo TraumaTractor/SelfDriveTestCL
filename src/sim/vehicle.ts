@@ -1,6 +1,38 @@
 import type { IdmParams } from './idm';
 import type { World } from './world';
 
+export type VehicleType = 'car' | 'van' | 'lorry' | 'motorcycle' | 'coach';
+
+export interface VehicleSpec {
+  /** word used when describing it ("a lorry ahead") */
+  noun: string;
+  label: string;
+  length: number;
+  width: number;
+  /** body height in metres (used by the dashcam) */
+  height: number;
+  /** kg */
+  mass: number;
+  /** top speed in m/s (lorries and coaches are speed limited) */
+  maxSpeed: number;
+  /** heavy vehicles may not use the fastest lane of a motorway with 3+ lanes */
+  heavy: boolean;
+  /** how it accelerates / brakes / follows compared with the driver's own style */
+  accelScale: number;
+  brakeScale: number;
+  headwayScale: number;
+}
+
+export const VEHICLE_TYPES: VehicleType[] = ['car', 'van', 'lorry', 'motorcycle', 'coach'];
+
+export const VEHICLE_SPECS: Record<VehicleType, VehicleSpec> = {
+  car: { noun: 'car', label: 'Car', length: 4.5, width: 1.9, height: 1.45, mass: 1500, maxSpeed: Infinity, heavy: false, accelScale: 1, brakeScale: 1, headwayScale: 1 },
+  van: { noun: 'van', label: 'Van', length: 5.4, width: 2.0, height: 2.1, mass: 2600, maxSpeed: Infinity, heavy: false, accelScale: 0.8, brakeScale: 0.9, headwayScale: 1.1 },
+  lorry: { noun: 'lorry', label: 'Lorry', length: 13.5, width: 2.55, height: 4.0, mass: 22000, maxSpeed: 25, heavy: true, accelScale: 0.4, brakeScale: 0.7, headwayScale: 1.4 },
+  motorcycle: { noun: 'motorcycle', label: 'Motorcycle', length: 2.1, width: 0.8, height: 1.5, mass: 300, maxSpeed: Infinity, heavy: false, accelScale: 1.7, brakeScale: 1.2, headwayScale: 0.75 },
+  coach: { noun: 'coach', label: 'Coach', length: 12, width: 2.5, height: 3.5, mass: 13000, maxSpeed: 28, heavy: true, accelScale: 0.5, brakeScale: 0.75, headwayScale: 1.3 },
+};
+
 export type Indicator = -1 | 0 | 1; // +1 = towards higher lane index (overtaking side)
 
 export interface Decision {
@@ -17,6 +49,7 @@ export interface Driver {
 export interface Vehicle {
   id: number;
   kind: 'ego' | 'traffic';
+  type: VehicleType;
   /** personality id for traffic, 'ego' for the ego car */
   label: string;
   color: string;

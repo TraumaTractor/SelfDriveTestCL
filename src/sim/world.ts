@@ -7,7 +7,7 @@ import {
 import { EgoMetrics } from './metrics';
 import { Rng } from './rng';
 import { generateRoad, lapOf, rampInstances, speedLimitAt, type Road } from './road';
-import { bumperGap, occupies, type Decision, type Driver, type Vehicle } from './vehicle';
+import { bumperGap, occupies, VEHICLE_SPECS, VEHICLE_TYPES, type Decision, type Driver, type Vehicle, type VehicleType } from './vehicle';
 
 export interface WorldConfig {
   seed: number;
@@ -21,6 +21,8 @@ export interface WorldConfig {
   rampRate: number;
   /** relative share of each driver personality */
   mix: Record<PersonalityId, number>;
+  /** relative share of each kind of vehicle */
+  vehicleMix: Record<VehicleType, number>;
   personalities: Record<PersonalityId, Personality>;
   egoStart: number;
   /** the road loops forever (laps repeat the same layout); otherwise the run ends after `laps` laps */
@@ -39,6 +41,7 @@ export function defaultConfig(): WorldConfig {
     density: 10,
     rampRate: 6,
     mix: { great: 3, average: 5, cautious: 2, aggressive: 2, reckless: 1 },
+    vehicleMix: { car: 70, van: 12, lorry: 9, motorcycle: 6, coach: 3 },
     personalities: clonePersonalities(),
     egoStart: 300,
     endless: true,
@@ -107,7 +110,7 @@ export class World {
     this.totalLength = cfg.endless ? Infinity : cfg.length * Math.max(1, cfg.laps);
 
     const egoLane = Math.min(1, cfg.lanes - 1);
-    const ego = this.makeVehicle('ego', 'Ego', '#35e0ff', cfg.egoStart, egoLane, speedLimitAt(this.road, cfg.egoStart), egoDriver);
+    const ego = this.makeVehicle('ego', 'Ego', '#35e0ff', 'car', cfg.egoStart, egoLane, speedLimitAt(this.road, cfg.egoStart), egoDriver);
     ego.idm = { a: 1.5, b: 2, T: 1.5, s0: 2 };
     this.ego = ego;
     this.vehicles.push(ego);
@@ -419,26 +422,40 @@ export class World {
     }
   }
 
+  /** Pick a kind of vehicle; heavy ones are kept out of the fastest lane on 3+ lane roads. */
+  private pickVehicleType(lane: number): VehicleType {
+    const w = {} as Record<VehicleType, number>;
+    for (const t of VEHICLE_TYPES) w[t] = VEHICLE_SPECS[t].heavy && lane > this.maxHeavyLane() ? 0 : this.cfg.vehicleMix[t] ?? 0;
+    return this.rng.weighted(w);
+  }
+
+  private maxHeavyLane(): number {
+    return this.cfg.lanes >= 3 ? this.cfg.lanes - 2 : this.cfg.lanes - 1;
+  }
+
   private trySpawn(id: PersonalityId, s: number, lane: number, v: number): Vehicle | null {
+    const type = this.pickVehicleType(lane);
+    const spec = VEHICLE_SPECS[type];
     // refuse if it would overlap an existing vehicle
     for (const e of this.vehicles) {
-      if (Math.abs(e.s - s) < 12 && (Math.abs(e.y - lane) < 0.9 || e.targetLane === lane)) return null;
+      if (Math.abs(e.s - s) < Math.max(12, (e.length + spec.length) / 2 + 6) && (Math.abs(e.y - lane) < 0.9 || e.targetLane === lane)) return null;
     }
     const p = this.cfg.personalities[id];
-    const driver = new TrafficDriver(p, this.rng.fork());
-    const veh = this.makeVehicle('traffic', id, p.color, s, lane, v, driver);
+    const maxLane = spec.heavy ? this.maxHeavyLane() : this.cfg.lanes - 1;
+    const driver = new TrafficDriver(p, this.rng.fork(), spec, maxLane);
+    const veh = this.makeVehicle('traffic', id, p.color, type, s, lane, Math.min(v, spec.maxSpeed * 0.97), driver);
     veh.onRamp = lane < 0;
-    veh.idm = { a: p.accel, b: p.decel, T: p.headway, s0: p.minGap };
+    veh.idm = { a: p.accel * spec.accelScale, b: p.decel * spec.brakeScale, T: p.headway * spec.headwayScale, s0: p.minGap };
     this.vehicles.push(veh);
     return veh;
   }
 
-  private makeVehicle(kind: 'ego' | 'traffic', label: string, color: string, s: number, lane: number, v: number, driver: Driver): Vehicle {
-    const truck = kind === 'traffic' && this.rng.chance(0.08);
+  private makeVehicle(kind: 'ego' | 'traffic', label: string, color: string, type: VehicleType, s: number, lane: number, v: number, driver: Driver): Vehicle {
+    const spec = VEHICLE_SPECS[type];
     return {
-      id: this.nextId++, kind, label, color,
+      id: this.nextId++, kind, type, label, color,
       s, y: lane, prevS: s, prevY: lane, v, a: 0,
-      length: truck ? 8.5 : 4.5, width: truck ? 2.3 : 1.9,
+      length: spec.length, width: spec.width,
       targetLane: lane, changing: false, indicator: 0, indicatorSince: 0, changeStart: 0,
       onRamp: false, crashed: false, crashTime: 0,
       idm: { a: 1.5, b: 2, T: 1.5, s0: 2 }, v0: speedLimitAt(this.road, s),

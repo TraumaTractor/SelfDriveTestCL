@@ -1,4 +1,7 @@
-import { MS_TO_KMH } from '../common';
+import * as U from '../units';
+import { theme } from '../theme';
+import { VEHICLE_SPECS } from '../sim/vehicle';
+import { drawRear } from './sprites';
 import type { EgoReport } from '../ego/egoDriver';
 import { rampInstances, speedLimitAt, zoneInstances } from '../sim/road';
 import type { Vehicle } from '../sim/vehicle';
@@ -9,6 +12,11 @@ export interface DashOptions {
   report: EgoReport | null;
 }
 
+const PAL = {
+  // light = a bright day; dark = dusk
+  light: { skyTop: '#5d8fc9', skyBottom: '#bcd6ee', hills: '#6f8f86', grass: '#2f5d3a', roadA: '#3a3e46', roadB: '#363a42', ramp: '#41464f', tree: '#2d6b3d', tree2: '#25593a', trunk: '#4a3a2a' },
+  dark: { skyTop: '#101a33', skyBottom: '#7b5a74', hills: '#2f4350', grass: '#16301f', roadA: '#23262c', roadB: '#202328', ramp: '#2a2d33', tree: '#1c4a2c', tree2: '#163d25', trunk: '#2e251b' },
+};
 const CAM_H = 1.25; // camera height above the road (m)
 const HFOV = (84 * Math.PI) / 180;
 const Z_NEAR = 1.2;
@@ -45,6 +53,7 @@ export class Dashcam {
     const lw = world.road.laneWidth;
     const lanes = world.road.lanes;
     const lerp = (a: number, b: number) => a + (b - a) * o.alpha;
+    const pal = PAL[theme()];
 
     const camS = lerp(ego.prevS, ego.s) + ego.length * 0.15;
     const camX = lerp(ego.prevY, ego.y) * lw;
@@ -55,12 +64,12 @@ export class Dashcam {
 
     // sky
     const sky = ctx.createLinearGradient(0, 0, 0, horizon);
-    sky.addColorStop(0, '#5d8fc9');
-    sky.addColorStop(1, '#bcd6ee');
+    sky.addColorStop(0, pal.skyTop);
+    sky.addColorStop(1, pal.skyBottom);
     ctx.fillStyle = sky;
     ctx.fillRect(0, 0, w, horizon + 1);
     // distant hills
-    ctx.fillStyle = '#6f8f86';
+    ctx.fillStyle = pal.hills;
     ctx.beginPath();
     ctx.moveTo(0, horizon);
     for (let x = 0; x <= w; x += 20) ctx.lineTo(x, horizon - 6 - 5 * Math.sin((x + camS * 0.2) / 70) - 3 * Math.sin((x + camS * 0.2) / 23));
@@ -68,7 +77,7 @@ export class Dashcam {
     ctx.closePath();
     ctx.fill();
     // grass
-    ctx.fillStyle = '#2f5d3a';
+    ctx.fillStyle = pal.grass;
     ctx.fillRect(0, horizon, w, h - horizon);
 
     // road surface, as strips from far to near
@@ -78,7 +87,7 @@ export class Dashcam {
     for (let i = steps - 1; i >= 0; i--) {
       const z0 = zAt(i), z1 = zAt(i + 1);
       const band = Math.floor((camS + z0) / 12) % 2 === 0;
-      ctx.fillStyle = band ? '#3a3e46' : '#363a42';
+      ctx.fillStyle = band ? pal.roadA : pal.roadB;
       this.quad(z0, z1, left, right, camX, f, horizon);
     }
     this.roadStrips(left, right, camS, steps, zAt, px, py);
@@ -87,7 +96,7 @@ export class Dashcam {
     for (const { ramp } of rampInstances(world.road, camS, camS + Z_FAR)) {
       const a = Math.max(ramp.start - camS, Z_NEAR), b = Math.min(ramp.end - camS, Z_FAR);
       if (b <= a) continue;
-      ctx.fillStyle = '#41464f';
+      ctx.fillStyle = pal.ramp;
       this.ground(left - lw, left, a, b, px, py);
       ctx.fillStyle = 'rgba(217,217,217,0.9)';
       for (let s = Math.ceil((camS + a) / 6) * 6; s < camS + b; s += 6) {
@@ -110,12 +119,12 @@ export class Dashcam {
       if (z < Z_NEAR) continue;
       const onRight = hs % 2 === 0;
       const X = onRight ? right + 6 + (hs % 9) * 2 : left - 7 - (hs % 7) * 2;
-      items.push({ z, draw: () => this.tree(px(X, z), py(0, z), f / z, hs) });
+      items.push({ z, draw: () => this.tree(px(X, z), py(0, z), f / z, hs, pal) });
     }
     for (const zn of zoneInstances(world.road, camS, camS + Z_FAR)) {
       const z = zn.start - camS;
       if (z < Z_NEAR || z > Z_FAR) continue;
-      items.push({ z, draw: () => this.sign(px(right + 1.6, z), py(2.2, z), py(0, z), f / z, Math.round((zn.limit * MS_TO_KMH) / 10) * 10) });
+      items.push({ z, draw: () => this.sign(px(right + 1.6, z), py(2.2, z), py(0, z), f / z, Math.round(U.speedValue(zn.limit) / (U.getUnits() === 'imperial' ? 5 : 10)) * (U.getUnits() === 'imperial' ? 5 : 10)) });
     }
 
     // vehicles ahead
@@ -138,7 +147,7 @@ export class Dashcam {
         ctx.strokeStyle = danger ? '#ff4d6a' : '#35e0ff';
         ctx.lineWidth = 2;
         ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
-        this.label(`${(lead.veh.v * MS_TO_KMH).toFixed(0)} km/h · ${lead.gap.toFixed(0)} m`, (x0 + x1) / 2, y0 - 6, danger ? '#ff4d6a' : '#35e0ff');
+        this.label(`${U.speed(lead.veh.v)} · ${U.dist(lead.gap)}`, (x0 + x1) / 2, y0 - 6, danger ? '#ff4d6a' : '#35e0ff');
       }
     }
 
@@ -148,7 +157,7 @@ export class Dashcam {
   // ------------------------------------------------------------------ pieces
 
   private vh(v: Vehicle): number {
-    return v.length > 6 ? 3.2 : 1.45;
+    return VEHICLE_SPECS[v.type].height;
   }
 
   /** Road strip between two depths; draws as a screen-space trapezoid. */
@@ -201,63 +210,20 @@ export class Dashcam {
     }
   }
 
-  private vehicle(v: Vehicle, z: number, X: number, px: (X: number, Z: number) => number, py: (Y: number, Z: number) => number, f: number, time: number): void {
-    const { ctx } = this;
+  private vehicle(v: Vehicle, z: number, X: number, px: (X: number, Z: number) => number, py: (Y: number, Z: number) => number, _f: number, time: number): void {
     const top = this.vh(v);
     const x0 = px(X - v.width / 2, z), x1 = px(X + v.width / 2, z);
     const y0 = py(top, z), y1 = py(0.2, z);
-    const wd = x1 - x0, ht = y1 - y0;
-    if (wd < 1.5) return;
-    // contact shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath();
-    ctx.ellipse((x0 + x1) / 2, y1, wd * 0.58, Math.max(1, ht * 0.07), 0, 0, Math.PI * 2);
-    ctx.fill();
-    // body
-    ctx.fillStyle = v.crashed ? '#555a63' : v.color;
-    this.round(x0, y0 + ht * (v.length > 6 ? 0 : 0.18), wd, ht * (v.length > 6 ? 1 : 0.82), Math.min(6, wd * 0.12));
-    ctx.fill();
-    // rear window / roofline
-    if (v.length <= 6) {
-      ctx.fillStyle = 'rgba(15,20,30,0.78)';
-      ctx.fillRect(x0 + wd * 0.14, y0 + ht * 0.24, wd * 0.72, ht * 0.24);
-    } else {
-      ctx.fillStyle = 'rgba(0,0,0,0.18)';
-      ctx.fillRect(x0 + wd * 0.05, y0 + ht * 0.1, wd * 0.9, ht * 0.5);
-    }
-    if (!v.crashed) {
-      // tail lights (brighter when braking)
-      const braking = v.a < -1;
-      ctx.fillStyle = braking ? '#ff2a2a' : '#7a1c22';
-      const lh = Math.max(2, ht * 0.1);
-      ctx.fillRect(x0 + wd * 0.04, y0 + ht * 0.62, wd * 0.2, lh);
-      ctx.fillRect(x1 - wd * 0.24, y0 + ht * 0.62, wd * 0.2, lh);
-      if (braking && wd > 10) {
-        ctx.fillStyle = 'rgba(255,42,42,0.28)';
-        ctx.fillRect(x0 - 2, y0 + ht * 0.56, wd + 4, lh * 2.4);
-      }
-      // number plate
-      ctx.fillStyle = '#e9e4c9';
-      ctx.fillRect(x0 + wd * 0.38, y0 + ht * 0.68, wd * 0.24, Math.max(1.5, ht * 0.07));
-    }
-    // indicators / hazards
-    const blink = Math.floor(time * 2.5) % 2 === 0;
-    if ((v.indicator !== 0 || v.crashed) && blink) {
-      ctx.fillStyle = '#ffb000';
-      const lit = (side: 'l' | 'r') => ctx.fillRect(side === 'l' ? x0 + wd * 0.02 : x1 - wd * 0.12, y0 + ht * 0.5, wd * 0.1, Math.max(2, ht * 0.1));
-      // overtaking side is the driver's right; seen from behind, +1 = right
-      if (v.crashed || v.indicator === 1) lit('r');
-      if (v.crashed || v.indicator === -1) lit('l');
-    }
-    void f;
+    if (x1 - x0 < 1.5) return;
+    drawRear(this.ctx, v, x0, y0, x1 - x0, y1 - y0, time);
   }
 
-  private tree(x: number, y: number, k: number, hs: number): void {
+  private tree(x: number, y: number, k: number, hs: number, pal: (typeof PAL)['light']): void {
     const { ctx } = this;
     if (k < 0.6) return;
-    ctx.fillStyle = '#4a3a2a';
+    ctx.fillStyle = pal.trunk;
     ctx.fillRect(x - k * 0.18, y - k * 2.2, k * 0.36, k * 2.2);
-    ctx.fillStyle = hs % 3 === 0 ? '#2d6b3d' : '#25593a';
+    ctx.fillStyle = hs % 3 === 0 ? pal.tree : pal.tree2;
     ctx.beginPath();
     ctx.arc(x, y - k * 3.6, k * (1.6 + (hs % 5) * 0.12), 0, Math.PI * 2);
     ctx.fill();
@@ -327,14 +293,14 @@ export class Dashcam {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffffff';
     ctx.font = '700 22px system-ui, sans-serif';
-    ctx.fillText(`${(ego.v * MS_TO_KMH).toFixed(0)}`, w / 2, h - 9);
+    ctx.fillText(`${U.speedValue(ego.v).toFixed(0)}`, w / 2, h - 9);
     ctx.font = '11px system-ui, sans-serif';
     ctx.fillStyle = '#8d94a0';
-    ctx.fillText('km/h', w / 2 + 34, h - 9);
+    ctx.fillText(U.speedUnit(), w / 2 + 34, h - 9);
     const limit = speedLimitAt(world.road, ego.s);
     ctx.textAlign = 'left';
     ctx.fillStyle = ego.v > limit * 1.02 ? '#ff9340' : '#8d94a0';
-    ctx.fillText(`limit ${(limit * MS_TO_KMH).toFixed(0)}`, 12, h - 10);
+    ctx.fillText(`limit ${U.speedValue(limit).toFixed(0)}`, 12, h - 10);
     ctx.textAlign = 'right';
     ctx.fillStyle = '#8d94a0';
     ctx.fillText(`lane ${ego.targetLane + 1}/${world.road.lanes} · lap ${world.lap + 1}`, w - 12, h - 10);
@@ -364,7 +330,7 @@ export class Dashcam {
       ctx.fillStyle = '#cfd6e0';
       ctx.font = '11px system-ui, sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText(`${fol.gap.toFixed(0)} m · ${closing >= 0 ? '+' : ''}${(closing * MS_TO_KMH).toFixed(0)} km/h`, mx + 10 + wd * 0.7 + 8, my + 21);
+      ctx.fillText(`${U.dist(fol.gap)} · ${U.speedDelta(closing)}`, mx + 10 + wd * 0.7 + 8, my + 21);
     } else {
       ctx.fillStyle = '#6b7685';
       ctx.font = '11px system-ui, sans-serif';

@@ -77,7 +77,7 @@ function restartIntoUpdate() {
 
 function hintFor(code) {
   return code === 'private-or-missing'
-    ? 'GitHub has no published release to download. Common causes: the release is still a draft or marked "pre-release" (edit it and tick "Set as the latest release"), the build is still attaching files, or the repository is private (then use Options → "Use token from clipboard").'
+    ? 'GitHub has no published release to download. Common causes: the release is still a draft or marked "pre-release" (edit it and tick "Set as the latest release"), the build is still attaching files, or the repository is private (then use Settings → "Use token from clipboard").'
     : code === 'denied' ? 'GitHub rejected the saved token. Create a new read-only token and use it again.'
     : code === 'offline' ? 'Check your internet connection and try again.' : '';
 }
@@ -133,7 +133,7 @@ async function checkForUpdates(manual) {
   }
 }
 
-// Used by the app's own Options panel (via preload.cjs).
+// Used by the app's own Settings panel (via preload.cjs).
 ipcMain.handle('updates:info', () => ({ enabled: UPDATES_ENABLED, version: active.version, updated: active.isUpdate, hasToken: !!getToken(), ready }));
 ipcMain.handle('updates:check', () => doCheck());
 ipcMain.handle('updates:restart', () => { restartIntoUpdate(); });

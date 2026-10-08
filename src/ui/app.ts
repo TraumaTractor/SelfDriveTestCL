@@ -4,16 +4,17 @@ import { Dashcam } from '../render/dashcam';
 import { Renderer } from '../render/renderer';
 import { SIM_DT } from '../sim/headless';
 import { World, defaultConfig, type WorldConfig } from '../sim/world';
-import { MS_TO_KMH } from '../common';
 import { h } from './dom';
 import { decisionsPanel } from './decisionsPanel';
-import { showOptions } from './optionsPanel';
+import { loadSettings } from '../settings';
+import { showSettings } from './settingsPanel';
 import { maybeShowWhatsNew, showWhatsNewNow } from './whatsNew';
 import { resultsPanel, setStale } from './resultsPanel';
 import { rulesPanel } from './rulesPanel';
 import type { App, Panel } from './state';
 import { trafficPanel } from './trafficPanel';
 import './style.css';
+import * as U from '../units';
 
 const STORAGE_KEY = 'selfdrive-testbench-v1';
 
@@ -34,9 +35,11 @@ function save(app: App): void {
 }
 
 export function startApp(root: HTMLElement): void {
+  loadSettings(); // theme + units, before anything is drawn
   const saved = load();
   const cfg: WorldConfig = { ...defaultConfig(), ...(saved.cfg ?? {}) };
   cfg.mix = { ...defaultConfig().mix, ...(saved.cfg?.mix ?? {}) };
+  cfg.vehicleMix = { ...defaultConfig().vehicleMix, ...(saved.cfg?.vehicleMix ?? {}) };
   cfg.personalities = { ...defaultConfig().personalities, ...(saved.cfg?.personalities ?? {}) };
   let rules = new RuleSet();
   try { if (saved.rules) rules = RuleSet.fromJSON(saved.rules); } catch { /* ignore corrupt data */ }
@@ -123,15 +126,15 @@ export function startApp(root: HTMLElement): void {
     chk('Sensors', sensors, (v) => (sensors = v)),
     chk('Driver labels', labels, (v) => (labels = v)),
     h('span', { class: 'spacer' }),
-    h('button', { title: 'Options: version, updates', on: { click: () => showOptions(__APP_VERSION__) } }, '⚙ Options'),
+    h('button', { title: 'Settings: theme, units, updates', on: { click: () => showSettings(__APP_VERSION__) } }, '⚙ Settings'),
     h('span', { id: 'seedlabel', class: 'chk' }, ''));
 
   const tiles = h('div', { class: 'tiles' });
   const tileDefs: [string, (w: World) => string, (w: World) => string][] = [
     ['Lap', (w) => `${w.lap + 1}${w.cfg.endless ? '' : '/' + Math.max(1, w.cfg.laps)}`, () => ''],
     ['Time', (w) => `${w.time.toFixed(0)} s`, () => ''],
-    ['Distance', (w) => `${(w.metrics.distance / 1000).toFixed(2)} km`, () => ''],
-    ['Avg speed', (w) => `${(w.metrics.avgSpeed * MS_TO_KMH).toFixed(0)} km/h`, () => ''],
+    ['Distance', (w) => U.longDist(w.metrics.distance, 2), () => ''],
+    ['Avg speed', (w) => U.speed(w.metrics.avgSpeed), () => ''],
     ['Near misses', (w) => String(w.metrics.nearMisses), (w) => (w.metrics.nearMisses ? 'bad' : 'good')],
     ['Hard brakes', (w) => String(w.metrics.hardBrakes), (w) => (w.metrics.hardBrakes ? 'warn' : 'good')],
     ['Lane changes', (w) => String(w.metrics.laneChanges), () => ''],

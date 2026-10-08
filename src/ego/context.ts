@@ -1,8 +1,9 @@
 import type { ParamDef } from '../common';
 import type { PersonalityId } from '../drivers/personality';
 import { mergeImpact, type MergeImpact } from '../sim/impact';
-import type { Indicator, Vehicle } from '../sim/vehicle';
+import { VEHICLE_SPECS, type Indicator, type Vehicle } from '../sim/vehicle';
 import type { World } from '../sim/world';
+import * as U from '../units';
 
 export type Params = Record<string, number>;
 
@@ -46,6 +47,11 @@ export class Ctx {
     this.cruise = limit * this.param('keep-speed', 'speedFactor', 1);
   }
 
+  /** What to call a vehicle in explanations: car, van, lorry, motorcycle, coach. */
+  noun(v: Vehicle): string {
+    return VEHICLE_SPECS[v.type].noun;
+  }
+
   /** Human name for a vehicle, e.g. "Great driver" or "wreck". */
   name(v: Vehicle): string {
     if (v.crashed) return 'wreck';
@@ -84,13 +90,13 @@ export class Ctx {
     const im = mergeImpact(world, me, target);
     const info = (ok: boolean, reason: string): MergeCheck => ({ impact: im, ok, reason, limit: maxImpact });
 
-    if (im.followerGap < minGap) return info(false, `only ${Math.max(im.followerGap, 0).toFixed(1)}m clear behind`);
-    if (im.leaderGap < minGap) return info(false, `only ${Math.max(im.leaderGap, 0).toFixed(1)}m clear ahead`);
+    if (im.followerGap < minGap) return info(false, `only ${U.dist(Math.max(im.followerGap, 0), 1)} clear behind`);
+    if (im.leaderGap < minGap) return info(false, `only ${U.dist(Math.max(im.leaderGap, 0), 1)} clear ahead`);
     if (im.imposedDecel > maxImpact) {
-      const who = im.follower ? ` (${im.followerClosing >= 0 ? '+' : ''}${(im.followerClosing * 3.6).toFixed(0)} km/h, ${Math.max(0, im.followerGap).toFixed(0)}m back)` : '';
-      return info(false, `would make them brake ${im.imposedDecel.toFixed(1)} m/s²${who}`);
+      const who = im.follower ? ` (${im.followerClosing >= 0 ? '+' : ''}${U.speed(im.followerClosing)}, ${U.dist(Math.max(0, im.followerGap), 0)} back)` : '';
+      return info(false, `would make them brake ${U.accel(im.imposedDecel)}${who}`);
     }
-    if (im.selfDecel > maxSelfDecel) return info(false, `I'd need ${im.selfDecel.toFixed(1)} m/s² to match the car ahead`);
+    if (im.selfDecel > maxSelfDecel) return info(false, `I'd need ${U.accel(im.selfDecel)} to match the vehicle ahead`);
     for (const o of world.vehiclesInLane(target)) {
       if (o !== me && o.changing && Math.abs(o.s - me.s) < (o.length + me.length) / 2 + 4) {
         return info(false, 'another car is moving into that lane');

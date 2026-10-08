@@ -7,7 +7,7 @@ import { defaultConfig, World } from '../src/sim/world';
 import { TrafficDriver } from '../src/drivers/trafficDriver';
 import { PERSONALITIES } from '../src/drivers/personality';
 import { Rng } from '../src/sim/rng';
-import type { Driver } from '../src/sim/vehicle';
+import { VEHICLE_SPECS, type Driver } from '../src/sim/vehicle';
 
 function greatOnly() {
   const cfg = defaultConfig();
@@ -100,7 +100,7 @@ describe('lane discipline', () => {
     const p = PERSONALITIES[id];
     const v = {
       ...w.ego, id: 99, kind: 'traffic' as const, label: id, s: 600, prevS: 600, y: 2, prevY: 2, targetLane: 2, v: 30,
-      driver: new TrafficDriver(p, new Rng(5)),
+      driver: new TrafficDriver(p, new Rng(5), VEHICLE_SPECS.car, 2),
     };
     w.vehicles = [w.ego, v];
     Object.assign(w.ego, { s: 100, prevS: 100 });
@@ -124,7 +124,7 @@ describe('considerate traffic drivers', () => {
       ...w.ego, id, kind: 'traffic' as const, label: 'great', s, prevS: s, y: lane, prevY: lane, targetLane: lane, v, driver,
     });
     const cruiser: Driver = { decide: () => ({ accel: 0, wantLane: null, indicator: 0 }) };
-    const me = mk(90, 600, 1, 30, new TrafficDriver(PERSONALITIES.great, new Rng(3)));
+    const me = mk(90, 600, 1, 30, new TrafficDriver(PERSONALITIES.great, new Rng(3), VEHICLE_SPECS.car, 2));
     const lead = mk(91, 650, 1, leaderSpeed, cruiser);
     w.vehicles = [w.ego, me, lead];
     Object.assign(w.ego, { s: 100, prevS: 100 });
