@@ -1,6 +1,7 @@
 import { clamp } from '../common';
 import { idm } from '../sim/idm';
 import { distanceToNextRamp } from '../sim/road';
+import { stoppingSightSpeed } from '../sim/weather';
 import { LANE_CHANGE_TIME } from '../sim/world';
 import { bumperGap, type Indicator, type Vehicle } from '../sim/vehicle';
 import type { Ctx, Draft, Params, RuleDef, RuleImpl, RuleItem } from './context';
@@ -17,7 +18,7 @@ const emergencyBrake: RuleImpl = {
   },
   run(ctx, p, d) {
     const lead = ctx.world.corridorLeader(ctx.me);
-    if (!lead) return;
+    if (!lead || lead.gap > ctx.visibility) return;
     const closing = ctx.me.v - lead.veh.v;
     if (closing <= 0.3) return;
     const ttc = Math.max(lead.gap, 0) / closing;
@@ -43,7 +44,7 @@ const keepDistance: RuleImpl = {
   run(ctx, p, d) {
     const lead = ctx.leader();
     if (!lead || lead.gap > p.range) return;
-    const a = idm({ a: p.maxAccel, b: p.comfortDecel, T: p.headway, s0: p.minGap }, ctx.me.v, ctx.cruise, lead.gap, ctx.me.v - lead.veh.v);
+    const a = idm({ a: p.maxAccel, b: p.comfortDecel, T: p.headway * ctx.headwayScale, s0: p.minGap }, ctx.me.v, ctx.cruise, lead.gap, ctx.me.v - lead.veh.v);
     d.proposeAccel('keep-distance', a,
       false, `following a ${ctx.name(lead.veh)} at ${U.speed(lead.veh.v)}, ${U.dist(lead.gap, 0)} ahead (${(lead.gap / Math.max(ctx.me.v, 0.1)).toFixed(1)} s; I want ${p.headway} s)`);
   },
@@ -98,6 +99,28 @@ const keepSpeed: RuleImpl = {
   },
 };
 
+const weatherAdapt: RuleImpl = {
+  def: {
+    id: 'weather-adapt', name: 'Adapt to the weather', phase: 'main',
+    description: 'In rain, fog or snow: slows down, and leaves a longer gap, in proportion to how much grip and visibility are lost. Switch it off to see what a car that ignores the weather does.',
+    params: [
+      { key: 'speed', label: 'Slow down by', min: 0, max: 1, step: 0.05, unit: '× of the recommended cut', default: 1 },
+      { key: 'headway', label: 'Extra following gap', min: 0, max: 1, step: 0.05, unit: '× of what grip needs', default: 1 },
+      { key: 'sight', label: 'Never outdrive my sight', min: 0, max: 1, step: 1, hint: '1 = keep speed low enough to stop within the visible distance', default: 1 },
+    ],
+  },
+  run(ctx, p, d) {
+    const c = ctx.conditions;
+    if (c.kind === 'clear') return;
+    let target = ctx.cruise * (1 - (1 - c.speedFactor) * p.speed);
+    if (p.sight >= 0.5) target = Math.min(target, stoppingSightSpeed(c.visibility * 0.8, 5 * c.grip));
+    if (ctx.me.v > target) {
+      d.proposeAccel('weather-adapt', clamp(0.6 * (target - ctx.me.v), -2.5, 0), false,
+        `${c.kind} (grip ${Math.round(c.grip * 100)}%, visibility ${U.dist(c.visibility)}): holding ${U.speed(target)} instead of ${U.speed(ctx.cruise)}`);
+    }
+  },
+};
+
 const makeRoom: RuleImpl = {
   def: {
     id: 'make-room', name: 'Move over for on-ramp', phase: 'main',
@@ -117,6 +140,51 @@ const makeRoom: RuleImpl = {
         return;
       }
     }
+  },
+};
+
+const avoidObstacle: RuleImpl = {
+  def: {
+    id: 'avoid-obstacle', name: 'Avoid obstacles in the lane', phase: 'main',
+    description: 'Debris, a broken-down vehicle or a closed lane ahead: moves over early - before it has to brake - into a lane that is clear, choosing whichever side is safe.',
+    params: [
+      { key: 'foresight', label: 'Plan ahead by (on top of signal + move)', min: 1, max: 12, step: 0.5, unit: 's', default: 5 },
+      { key: 'lookahead', label: 'Max look-ahead', min: 100, max: 600, step: 25, unit: 'm', default: 400 },
+    ],
+  },
+  run(ctx, p, d) {
+    const { me, world } = ctx;
+    if (!ctx.canChangeLane) return;
+    const lead = world.leaderIn(me, ctx.lane);
+    if (!lead || !lead.veh.isStatic || lead.gap > ctx.visibility || lead.gap > p.lookahead) return;
+
+    const manoeuvre = ctx.param('signal', 'leadTime', 0) + LANE_CHANGE_TIME + p.foresight;
+    const reach = me.v * manoeuvre + 30;
+    const what = ctx.name(lead.veh);
+    if (lead.gap > reach) {
+      d.note('avoid-obstacle', `${what} ${U.dist(lead.gap)} ahead in my lane: will move over inside ${U.dist(reach)}`);
+      return;
+    }
+    const maxImpact = ctx.param('lane-change-safety', 'maxImpact', 1);
+    const maxSelf = ctx.param('lane-change-safety', 'maxSelfDecel', 2.5);
+    const minGap = ctx.param('lane-change-safety', 'minGap', 2);
+    let best: { lane: number; gap: number } | null = null;
+    const why: string[] = [];
+    for (const t of [ctx.lane - 1, ctx.lane + 1]) {
+      if (t < 0 || t >= world.cfg.lanes) continue;
+      const ahead = world.leaderIn(me, t);
+      if (ahead && ahead.veh.isStatic && ahead.gap < reach) { why.push(`lane ${t + 1} has ${ctx.name(ahead.veh)} too`); continue; }
+      const chk = ctx.mergeCheck(t, maxImpact, maxSelf, minGap);
+      if (!chk.ok) { why.push(`lane ${t + 1}: ${chk.reason}`); continue; }
+      const gap = ahead ? ahead.gap : Infinity;
+      if (!best || gap > best.gap) best = { lane: t, gap };
+    }
+    if (!best) {
+      d.note('avoid-obstacle', `${what} ${U.dist(lead.gap)} ahead and no safe way round (${why.join('; ') || 'no other lane'}): braking`);
+      return;
+    }
+    d.proposeLane('avoid-obstacle', best.lane,
+      `${what} ${U.dist(lead.gap)} ahead in my lane: moving to lane ${best.lane + 1} now so I never have to brake hard for it`);
   },
 };
 
@@ -300,8 +368,8 @@ const comfort: RuleImpl = {
 
 /** Default evaluation order. Lane proposals earlier in the list win ties. */
 export const RULE_IMPLS: RuleImpl[] = [
-  emergencyBrake, keepDistance, yieldToMerging, keepSpeed,
-  makeRoom, overtake, returnSlowLane,
+  emergencyBrake, keepDistance, yieldToMerging, weatherAdapt, keepSpeed,
+  makeRoom, avoidObstacle, overtake, returnSlowLane,
   noUndertake, laneSafety, signal, comfort,
 ];
 

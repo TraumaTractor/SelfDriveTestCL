@@ -9,7 +9,7 @@ const FILTERS: [string, DecisionKind[] | null][] = [
   ['All', null], ['Speed', ['speed', 'emergency']], ['Lane changes', ['lane']], ['Blocked', ['blocked']],
 ];
 
-export function decisionsPanel(_app: App): Panel {
+export function decisionsPanel(app: App): Panel {
   const el = h('div');
   const summary = h('div', { class: 'bars' });
   const stats = h('div', { class: 'note' });
@@ -49,7 +49,8 @@ export function decisionsPanel(_app: App): Panel {
       if (open.has(r.id)) open.delete(r.id); else open.add(r.id);
       detail.hidden = !open.has(r.id);
     } } },
-      h('div', { class: 'dec-head' }, h('span', { class: 'dec-t' }, `${r.t.toFixed(1)}s`), h('span', { class: 'dec-title' }, r.title)),
+      h('div', { class: 'dec-head' }, h('span', { class: 'dec-t' }, `${r.t.toFixed(1)}s`), h('span', { class: 'dec-title' }, r.title),
+        h('button', { class: 'small replay-link', title: 'Replay this moment', on: { click: (e) => { e.stopPropagation(); app.replayTo(r.t); } } }, '▶ Replay')),
       h('div', { class: 'dec-rules' }, ...r.rules.map((id) => h('span', { class: 'tag' }, ruleName(id)))),
       h('ul', {}, ...r.why.map((w) => h('li', {}, w))),
       r.outcome ? h('div', { class: `dec-out ${r.tone ?? ''}` }, `→ ${r.outcome}`) : null,

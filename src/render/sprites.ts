@@ -28,6 +28,43 @@ export function drawTopDown(ctx: CanvasRenderingContext2D, v: Vehicle, len: numb
   ctx.strokeStyle = 'rgba(0,0,0,0.45)';
 
   switch (v.type) {
+    case 'debris': {
+      ctx.fillStyle = '#7d6a4d';
+      ctx.beginPath();
+      ctx.moveTo(x0, 0); ctx.lineTo(-len * 0.1, y0); ctx.lineTo(len * 0.35, y0 * 0.6); ctx.lineTo(-x0, wid * 0.1);
+      ctx.lineTo(len * 0.1, -y0); ctx.lineTo(x0 * 0.5, -y0 * 0.7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#4a4a4f';
+      ctx.fillRect(-len * 0.12, -wid * 0.1, len * 0.3, wid * 0.22);
+      break;
+    }
+    case 'barrier': {
+      ctx.fillStyle = '#f4f4f4';
+      rrect(ctx, x0, y0, len, wid, 2);
+      ctx.fill();
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x0, y0, len, wid);
+      ctx.clip();
+      ctx.fillStyle = '#d9342b';
+      const step = Math.max(6, wid / 5);
+      for (let y = y0 - len; y < -y0 + len; y += step * 2) {
+        ctx.beginPath();
+        ctx.moveTo(x0, y); ctx.lineTo(x0 + len, y + len * 0.8); ctx.lineTo(x0 + len, y + len * 0.8 + step); ctx.lineTo(x0, y + step);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      rrect(ctx, x0, y0, len, wid, 2);
+      ctx.stroke();
+      const lamp = Math.floor(performance.now() / 450) % 2 === 0;
+      ctx.fillStyle = lamp ? '#ffb000' : '#7a5600';
+      ctx.beginPath(); ctx.arc(0, y0 + 3, 3, 0, Math.PI * 2); ctx.arc(0, -y0 - 3, 3, 0, Math.PI * 2); ctx.fill();
+      break;
+    }
     case 'van': {
       ctx.fillStyle = body;
       rrect(ctx, x0, y0, len, wid, 3);
@@ -139,6 +176,38 @@ export function drawRear(ctx: CanvasRenderingContext2D, v: Vehicle, x: number, y
   ctx.fill();
 
   switch (v.type) {
+    case 'debris': {
+      ctx.fillStyle = '#7d6a4d';
+      ctx.beginPath();
+      ctx.moveTo(x, y + h); ctx.lineTo(x + w * 0.2, y + h * 0.3); ctx.lineTo(x + w * 0.5, y + h * 0.6); ctx.lineTo(x + w * 0.75, y + h * 0.1); ctx.lineTo(x + w, y + h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#4a4a4f';
+      ctx.fillRect(x + w * 0.35, y + h * 0.65, w * 0.25, h * 0.3);
+      break;
+    }
+    case 'barrier': {
+      // a striped board on two legs with warning lamps
+      ctx.fillStyle = '#555a63';
+      ctx.fillRect(x + w * 0.08, y + h * 0.5, Math.max(2, w * 0.03), h * 0.5);
+      ctx.fillRect(x + w * 0.9, y + h * 0.5, Math.max(2, w * 0.03), h * 0.5);
+      ctx.fillStyle = '#f4f4f4';
+      ctx.fillRect(x, y + h * 0.1, w, h * 0.42);
+      ctx.fillStyle = '#d9342b';
+      const n = Math.max(6, Math.floor(w / 12));
+      for (let i = 0; i < n; i += 2) {
+        ctx.beginPath();
+        ctx.moveTo(x + (w * i) / n, y + h * 0.52); ctx.lineTo(x + (w * (i + 1)) / n, y + h * 0.52);
+        ctx.lineTo(x + (w * (i + 2)) / n, y + h * 0.1); ctx.lineTo(x + (w * (i + 1)) / n, y + h * 0.1);
+        ctx.closePath();
+        ctx.fill();
+      }
+      const lamp = Math.floor(time * 2.2) % 2 === 0;
+      ctx.fillStyle = lamp ? '#ffb000' : '#7a5600';
+      const r = Math.max(2, w * 0.04);
+      ctx.beginPath(); ctx.arc(x + w * 0.1, y + h * 0.06, r, 0, Math.PI * 2); ctx.arc(x + w * 0.9, y + h * 0.06, r, 0, Math.PI * 2); ctx.fill();
+      break;
+    }
     case 'van': {
       ctx.fillStyle = body;
       rrect(ctx, x, y, w, h * 0.92, Math.min(5, w * 0.08));
@@ -210,18 +279,18 @@ export function drawRear(ctx: CanvasRenderingContext2D, v: Vehicle, x: number, y
     }
   }
 
-  if (!v.crashed && v.type !== 'motorcycle') { // number plate
+  if (!v.crashed && v.type !== 'motorcycle' && v.type !== 'debris' && v.type !== 'barrier') { // number plate
     ctx.fillStyle = '#e9e4c9';
     ctx.fillRect(x + w * 0.38, y + h * (v.type === 'lorry' ? 0.72 : 0.68), w * 0.24, Math.max(1.5, h * 0.06));
   }
 
   // indicators / hazards (seen from behind, +1 = the driver's right)
   const blink = Math.floor(time * 2.5) % 2 === 0;
-  if ((v.indicator !== 0 || v.crashed) && blink) {
+  if ((v.indicator !== 0 || v.crashed || v.hazard) && blink && v.type !== 'barrier') {
     ctx.fillStyle = '#ffb000';
     const size = Math.max(2, w * 0.1);
     const py = y + h * (v.type === 'motorcycle' ? 0.35 : 0.5);
-    if (v.crashed || v.indicator === -1) ctx.fillRect(x + w * 0.01, py, size, size);
-    if (v.crashed || v.indicator === 1) ctx.fillRect(x + w * 0.99 - size, py, size, size);
+    if (v.crashed || v.hazard || v.indicator === -1) ctx.fillRect(x + w * 0.01, py, size, size);
+    if (v.crashed || v.hazard || v.indicator === 1) ctx.fillRect(x + w * 0.99 - size, py, size, size);
   }
 }

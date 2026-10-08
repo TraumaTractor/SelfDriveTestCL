@@ -1,4 +1,3 @@
-import { speedLimitAt } from '../sim/road';
 import type { Decision, Driver, Indicator, Vehicle } from '../sim/vehicle';
 import type { World } from '../sim/world';
 import { Ctx, Draft, type MergeCheck } from './context';
@@ -51,7 +50,7 @@ export class EgoDriver implements Driver {
     if (this.wasChanging && !me.changing) this.lastChangeEnd = world.time;
     this.wasChanging = me.changing;
 
-    const limit = speedLimitAt(world.road, me.s);
+    const limit = world.limitAt(me.s);
     const ctx = new Ctx(world, me, this.rules.items, world.time - this.lastChangeEnd, limit);
     const d = new Draft();
     runStack(ctx, this.rules, d);

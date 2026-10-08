@@ -49,7 +49,7 @@ To publish an update:
    `src/changelog.json` (a test fails if you forget), and merge to `main`. That entry becomes the update
    notes in the *Restart now* dialog **and** the "What's new" pop-up shown the first time each new version is
    opened (click the version number in the corner to see it again).
-2. Create a release with a matching tag, e.g. `v0.9.0` (GitHub → Releases → *Draft a new release* → *Create new
+2. Create a release with a matching tag, e.g. `v0.10.0` (GitHub → Releases → *Draft a new release* → *Create new
    tag on publish*). The *Build desktop apps* workflow then attaches the installers **and** `app-update.json`.
    (It refuses to publish if the tag and `package.json` version differ.)
 
@@ -131,6 +131,11 @@ The canvas shows the car's view ahead: the forward sensor field, the tracked veh
 and momentum change in kN, closing speed and time-to-collision), and, while a lane change is being
 considered, the driver it would pull in front of with the braking it would cause (green = acceptable, red =
 vetoed).
+
+### Weather, hazards, replay
+- **Traffic tab**: weather (clear/rain/fog/snow/variable) and road hazards (breakdowns, debris, roadworks). Add the *Adapt to weather* and *Avoid obstacles* rules to your car.
+- **Replay bar** under the stage: scrub back through the buffer, step with ← →, `L` returns to live. Click event markers or "▶ Replay" links to jump to a moment.
+- **Auto-pause**, **sound cues**, **legend** and the replay buffer size are in ⚙ Settings. Click a vehicle to inspect it.
 
 ## Layout
 

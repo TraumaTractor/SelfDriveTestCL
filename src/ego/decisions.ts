@@ -71,7 +71,7 @@ export class DecisionLog {
     return {
       lane: me.targetLane + 1, speed: me.v, target: cruise, limit,
       leader: lead ? {
-        name: lead.veh.crashed ? 'wreck' : (world.cfg.personalities[lead.veh.label as keyof typeof world.cfg.personalities]?.name ?? lead.veh.label),
+        name: lead.veh.crashed ? 'wreck' : lead.veh.isStatic ? (lead.veh.type === 'barrier' ? 'road closure' : lead.veh.type === 'debris' ? 'debris' : `stationary ${lead.veh.type}`) : (world.cfg.personalities[lead.veh.label as keyof typeof world.cfg.personalities]?.name ?? lead.veh.label),
         v: lead.veh.v, gap: lead.gap, ttc: closing > 0.3 ? Math.max(lead.gap, 0) / closing : null,
       } : null,
     };

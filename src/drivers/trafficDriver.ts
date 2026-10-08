@@ -2,7 +2,8 @@ import { clamp } from '../common';
 import { idm, type IdmParams } from '../sim/idm';
 import { mergeImpact } from '../sim/impact';
 import type { Rng } from '../sim/rng';
-import { rampAt, speedLimitAt } from '../sim/road';
+import { rampAt } from '../sim/road';
+import { stoppingSightSpeed } from '../sim/weather';
 import { bumperGap, occupies, type Decision, type Driver, type Indicator, type Vehicle, type VehicleSpec } from '../sim/vehicle';
 import type { World } from '../sim/world';
 import type { Personality } from './personality';
@@ -23,6 +24,7 @@ function followAccel(veh: Vehicle, leaderS: { gap: number; v: number } | null): 
 
 export class TrafficDriver implements Driver {
   private readonly idmParams: IdmParams;
+  private readonly baseT: number;
   private readonly noise: number;
   private readonly courteous: boolean;
   private filtered = 0;
@@ -35,6 +37,7 @@ export class TrafficDriver implements Driver {
 
   constructor(private readonly p: Personality, private readonly rng: Rng, private readonly spec: VehicleSpec, private readonly maxLane: number) {
     this.idmParams = { a: p.accel * spec.accelScale, b: p.decel * spec.brakeScale, T: p.headway * spec.headwayScale, s0: p.minGap };
+    this.baseT = this.idmParams.T;
     this.noise = 1 + rng.gauss() * 0.04;
     this.courteous = rng.chance(p.courtesy);
     this.nextEval = rng.range(0, 0.5);
@@ -42,8 +45,17 @@ export class TrafficDriver implements Driver {
 
   decide(w: World, me: Vehicle, dt: number): Decision {
     const p = this.p;
-    const limit = speedLimitAt(w.road, me.s);
-    const v0 = Math.max(3, Math.min(limit * p.speedFactor * this.noise, this.spec.maxSpeed));
+    const limit = w.limitAt(me.s);
+    let v0 = Math.max(3, Math.min(limit * p.speedFactor * this.noise, this.spec.maxSpeed));
+    // bad weather: careful drivers slow down and back off in proportion to how careful they are
+    const wx = w.conditions;
+    if (wx.kind !== 'clear') {
+      const care = p.weatherCare;
+      v0 *= 1 - (1 - wx.speedFactor) * care;
+      const safe = stoppingSightSpeed(wx.visibility * 0.8, 5 * wx.grip);
+      v0 = Math.max(3, Math.min(v0, v0 * (1 - care) + safe * care));
+    }
+    this.idmParams.T = this.baseT * (1 + (1 / wx.grip - 1) * p.weatherCare);
     me.v0 = v0;
     me.idm = this.idmParams;
 
@@ -51,7 +63,7 @@ export class TrafficDriver implements Driver {
     let gap = Infinity;
     let leadV = 0;
     const lead = w.leaderAhead(me);
-    if (lead) { gap = lead.gap; leadV = lead.veh.v; }
+    if (lead && lead.gap <= wx.visibility) { gap = lead.gap; leadV = lead.veh.v; } // can't react to what can't be seen
 
     // courteous drivers treat someone signalling into their lane as their leader
     if (this.courteous) {
@@ -114,9 +126,9 @@ export class TrafficDriver implements Driver {
           this.cooldownUntil = w.time + this.cooldown();
         }
       }
-    } else if (w.time >= this.nextEval && w.time >= this.cooldownUntil) {
+    } else if (w.time >= this.nextEval && (w.time >= this.cooldownUntil || this.staticAhead(w, me))) {
       this.nextEval = w.time + 0.5;
-      const target = me.onRamp ? this.mergeTarget(w, me, v0) : this.chooseLane(w, me, v0, a);
+      const target = me.onRamp ? this.mergeTarget(w, me, v0) : (this.avoidStatic(w, me, v0) ?? this.chooseLane(w, me, v0, a));
       if (target !== null) {
         const signal = this.rng.chance(p.signalProb);
         this.intent = { target, since: w.time, signal, lead: signal ? p.signalLead * this.rng.range(0.7, 1.3) : 0 };
@@ -133,6 +145,37 @@ export class TrafficDriver implements Driver {
     }
 
     return { accel: out, wantLane, indicator };
+  }
+
+  /** Is there something stationary (debris, a closure, a broken-down vehicle) ahead in my lane, close enough to matter? */
+  private staticAhead(w: World, me: Vehicle): boolean {
+    if (me.changing || me.onRamp) return false;
+    const lead = w.leaderIn(me, me.targetLane);
+    return !!lead && lead.veh.isStatic && lead.gap < 90 + me.v * 7;
+  }
+
+  /**
+   * Move out of the way of a stationary obstacle, early if the driver is considerate and late (so with a
+   * smaller gap accepted) if it has run out of room.
+   */
+  private avoidStatic(w: World, me: Vehicle, v0: number): number | null {
+    if (!this.staticAhead(w, me)) return null;
+    const lane = me.targetLane;
+    const lead = w.leaderIn(me, lane)!;
+    const reach = 90 + me.v * 7;
+    const urgency = clamp(1 - lead.gap / reach, 0, 1);
+    let best: number | null = null;
+    let bestGap = -1;
+    for (const t of [lane + 1, lane - 1]) {
+      if (t < 0 || t >= w.cfg.lanes || t > this.maxLane) continue;
+      if (w.laneClosed(t, me.s - 10, me.s + reach + 100)) continue;
+      const l2 = w.leaderIn(me, t);
+      if (l2 && l2.veh.isStatic && l2.gap < reach) continue;
+      if (!this.isSafe(w, me, t, v0, 1 - 0.6 * urgency, 1 + 3 * urgency)) continue;
+      const g = l2 ? l2.gap : Infinity;
+      if (g > bestGap) { best = t; bestGap = g; }
+    }
+    return best;
   }
 
   /** Patient drivers don't hop lanes; reckless ones do. */
@@ -232,6 +275,7 @@ export class TrafficDriver implements Driver {
   private isSafe(w: World, me: Vehicle, target: number, _v0: number, scale: number, boost = 1): boolean {
     const p = this.p;
     if (target < 0 && !me.onRamp) return false;
+    if (w.laneClosed(target, me.s - 10, me.s + 150)) return false; // roadworks
     const im = mergeImpact(w, me, target);
     const tol = boost / Math.max(scale, 0.3);
     const floor = Math.max(0.8, p.minGap * p.gapFactor * 0.5);
