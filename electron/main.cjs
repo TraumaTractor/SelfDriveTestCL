@@ -1,6 +1,6 @@
 // Electron shell: opens the app in its own window. No server needed. It can update the app itself from
 // GitHub Releases (see updater.cjs): newer app bundles are downloaded in the background and applied on restart.
-const { app, BrowserWindow, Menu, clipboard, dialog, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, safeStorage, shell } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const updater = require('./updater.cjs');
@@ -16,6 +16,7 @@ const CHECK_EVERY_MS = 6 * 60 * 60 * 1000;
 let win = null;
 let active = { index: PACKAGED_INDEX, version: pkg.version, isUpdate: false };
 let checking = false;
+let ready = null; // an update that is downloaded and waiting for a restart
 let announced = new Set();
 
 const updatesDir = () => path.join(app.getPath('userData'), 'updates');
@@ -48,24 +49,23 @@ function getToken() {
   return undefined;
 }
 
-function useTokenFromClipboard() {
+/** Store a token copied to the clipboard. Returns {ok, message}; shows no dialogs. */
+function saveTokenFromClipboard() {
   const text = clipboard.readText().trim();
   if (!/^(github_pat_|ghp_)[A-Za-z0-9_]{20,}$/.test(text)) {
-    dialog.showMessageBox(win, {
-      type: 'info', message: 'Copy your GitHub token first',
-      detail: 'Copy a fine-grained personal access token (it starts with github_pat_) that has read-only access to "Contents" on this repository, then choose this menu item again.',
-    });
-    return;
+    return { ok: false, message: 'Copy a fine-grained GitHub token first (it starts with github_pat_ and needs read-only access to "Contents" on this repository), then try again.' };
   }
-  if (!safeStorage.isEncryptionAvailable()) {
-    dialog.showMessageBox(win, { type: 'error', message: 'Cannot store the token securely on this computer.' });
-    return;
-  }
+  if (!safeStorage.isEncryptionAvailable()) return { ok: false, message: 'Cannot store the token securely on this computer.' };
   fs.mkdirSync(path.dirname(tokenFile()), { recursive: true });
   fs.writeFileSync(tokenFile(), safeStorage.encryptString(text));
   clipboard.clear();
-  dialog.showMessageBox(win, { type: 'info', message: 'Token saved', detail: 'It is stored encrypted on this computer and only used to look for updates. Checking now...' });
-  checkForUpdates(true);
+  return { ok: true, message: 'Token saved (stored encrypted on this computer).' };
+}
+
+function useTokenFromClipboard() {
+  const r = saveTokenFromClipboard();
+  dialog.showMessageBox(win, { type: r.ok ? 'info' : 'warning', message: r.ok ? 'Token saved' : 'Copy your GitHub token first', detail: r.message });
+  if (r.ok) checkForUpdates(true);
 }
 
 // ------------------------------------------------------------------------------- update checks
@@ -75,12 +75,17 @@ function restartIntoUpdate() {
   app.exit(0);
 }
 
-async function checkForUpdates(manual) {
-  if (checking) return;
-  if (!UPDATES_ENABLED) {
-    if (manual) dialog.showMessageBox(win, { type: 'info', message: 'Updates are only checked in the installed app.' });
-    return;
-  }
+function hintFor(code) {
+  return code === 'private-or-missing'
+    ? 'GitHub would not show the releases. If the repository is private, give this computer a read-only token (Options → "Use token from clipboard", or Help menu), or make the repository public.'
+    : code === 'denied' ? 'GitHub rejected the saved token. Create a new read-only token and use it again.'
+    : code === 'offline' ? 'Check your internet connection and try again.' : '';
+}
+
+/** Look for (and download) an update. Never shows dialogs; returns a plain result. */
+async function doCheck() {
+  if (!UPDATES_ENABLED) return { status: 'disabled', version: active.version };
+  if (checking) return { status: 'busy', version: active.version };
   checking = true;
   console.error(`[updater] checking (installed ${active.version})`);
   try {
@@ -89,47 +94,57 @@ async function checkForUpdates(manual) {
       shellVersion: SHELL_VERSION, updatesDir: updatesDir(), skip: updater.readBad(updatesDir()),
     });
     console.error(`[updater] result: ${r.status} ${r.version}`);
-    if (r.status === 'up-to-date') {
-      if (manual) dialog.showMessageBox(win, { type: 'info', message: `You're up to date`, detail: `Version ${active.version}` });
-    } else if (r.status === 'ready') {
-      if (process.env.SELFDRIVE_UPDATE_AUTO === 'quit') { app.quit(); return; }
-      if (announced.has(r.version) && !manual) return;
-      announced.add(r.version);
-      const { response } = await dialog.showMessageBox(win, {
-        type: 'info', buttons: ['Restart now', 'Later'], defaultId: 0, cancelId: 1,
-        message: `Version ${r.version} is ready`, detail: `${r.notes ? r.notes + '\n\n' : ''}Restart to start using it. Your rules and settings are kept.`,
-      });
-      if (response === 0) restartIntoUpdate();
-    } else if (r.status === 'needs-installer') {
-      if (announced.has(r.version) && !manual) return;
-      announced.add(r.version);
-      const { response } = await dialog.showMessageBox(win, {
-        type: 'info', buttons: ['Open download page', 'Later'], defaultId: 0, cancelId: 1,
-        message: `Version ${r.version} needs a new installer`,
-        detail: 'This update changes the app shell itself, so it cannot be applied automatically. Download and install it once; after that, updates are automatic again.',
-      });
-      if (response === 0) shell.openExternal(r.url);
-    }
+    if (r.status === 'ready') ready = r;
+    return r;
   } catch (e) {
     console.error('update check failed:', e.message);
-    if (manual) {
-      const hint = e.code === 'private-or-missing'
-        ? 'GitHub would not show the releases. If the repository is private, choose "Use Update Token from Clipboard" in the menu (you need a read-only token), or make the repository public.'
-        : e.code === 'denied' ? 'GitHub rejected the saved token. Create a new read-only token and choose "Use Update Token from Clipboard".'
-        : e.code === 'offline' ? 'Check your internet connection and try again.' : '';
-      dialog.showMessageBox(win, { type: 'warning', message: "Couldn't check for updates", detail: `${e.message}\n\n${hint}`.trim() });
-    }
+    return { status: 'error', code: e.code, message: e.message, hint: hintFor(e.code), version: active.version };
   } finally {
     checking = false;
   }
 }
+
+async function checkForUpdates(manual) {
+  const r = await doCheck();
+  if (r.status === 'disabled') {
+    if (manual) dialog.showMessageBox(win, { type: 'info', message: 'Updates are only checked in the installed app.' });
+  } else if (r.status === 'up-to-date') {
+    if (manual) dialog.showMessageBox(win, { type: 'info', message: "You're up to date", detail: `Version ${active.version}` });
+  } else if (r.status === 'ready') {
+    if (process.env.SELFDRIVE_UPDATE_AUTO === 'quit') { app.quit(); return; }
+    if (announced.has(r.version) && !manual) return;
+    announced.add(r.version);
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'info', buttons: ['Restart now', 'Later'], defaultId: 0, cancelId: 1,
+      message: `Version ${r.version} is ready`, detail: `${r.notes ? r.notes + '\n\n' : ''}Restart to start using it. Your rules and settings are kept.`,
+    });
+    if (response === 0) restartIntoUpdate();
+  } else if (r.status === 'needs-installer') {
+    if (announced.has(r.version) && !manual) return;
+    announced.add(r.version);
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'info', buttons: ['Open download page', 'Later'], defaultId: 0, cancelId: 1,
+      message: `Version ${r.version} needs a new installer`,
+      detail: 'This update changes the app shell itself, so it cannot be applied automatically. Download and install it once; after that, updates are automatic again.',
+    });
+    if (response === 0) shell.openExternal(r.url);
+  } else if (r.status === 'error' && manual) {
+    dialog.showMessageBox(win, { type: 'warning', message: "Couldn't check for updates", detail: `${r.message}\n\n${r.hint}`.trim() });
+  }
+}
+
+// Used by the app's own Options panel (via preload.cjs).
+ipcMain.handle('updates:info', () => ({ enabled: UPDATES_ENABLED, version: active.version, updated: active.isUpdate, hasToken: !!getToken(), ready }));
+ipcMain.handle('updates:check', () => doCheck());
+ipcMain.handle('updates:restart', () => { restartIntoUpdate(); });
+ipcMain.handle('updates:token', () => saveTokenFromClipboard());
 
 // ----------------------------------------------------------------------------------------- window
 function createWindow() {
   win = new BrowserWindow({
     width: 1500, height: 920, minWidth: 900, minHeight: 600,
     backgroundColor: '#0e1218', title: 'Self-Drive Test Bench', show: false,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: path.join(__dirname, 'preload.cjs') },
   });
   win.once('ready-to-show', () => win.show());
   win.loadFile(active.index);

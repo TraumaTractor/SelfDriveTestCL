@@ -4,6 +4,7 @@
     "title": "The app now updates itself",
     "items": [
       "New versions are downloaded in the background from GitHub - you just choose Restart when asked. Your rules and settings are kept.",
+      "⚙ Options (top right) has a Check for updates button, the version, and What's new. It also works from the Help menu.",
       "Help → Check for Updates… checks on demand. A broken update rolls itself back automatically.",
       "This \"What's new\" pop-up appears the first time you open each new version (click the version number in the corner to see it again)."
     ]
@@ -44,7 +45,9 @@
   {
     "version": "0.3.0",
     "title": "Variable speed limits switch",
-    "items": ["Variable speed limits are now a toggle in the Traffic tab; off gives a constant 120 km/h."]
+    "items": [
+      "Variable speed limits are now a toggle in the Traffic tab; off gives a constant 120 km/h."
+    ]
   },
   {
     "version": "0.2.0",
@@ -58,6 +61,8 @@
   {
     "version": "0.1.0",
     "title": "First version",
-    "items": ["Generated motorway, driver personalities from great to reckless, an editable rule stack for your car, scoring and batch tests."]
+    "items": [
+      "Generated motorway, driver personalities from great to reckless, an editable rule stack for your car, scoring and batch tests."
+    ]
   }
 ]

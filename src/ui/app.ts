@@ -7,6 +7,7 @@ import { World, defaultConfig, type WorldConfig } from '../sim/world';
 import { MS_TO_KMH } from '../common';
 import { h } from './dom';
 import { decisionsPanel } from './decisionsPanel';
+import { showOptions } from './optionsPanel';
 import { maybeShowWhatsNew, showWhatsNewNow } from './whatsNew';
 import { resultsPanel, setStale } from './resultsPanel';
 import { rulesPanel } from './rulesPanel';
@@ -122,6 +123,7 @@ export function startApp(root: HTMLElement): void {
     chk('Sensors', sensors, (v) => (sensors = v)),
     chk('Driver labels', labels, (v) => (labels = v)),
     h('span', { class: 'spacer' }),
+    h('button', { title: 'Options: version, updates', on: { click: () => showOptions(__APP_VERSION__) } }, '⚙ Options'),
     h('span', { id: 'seedlabel', class: 'chk' }, ''));
 
   const tiles = h('div', { class: 'tiles' });

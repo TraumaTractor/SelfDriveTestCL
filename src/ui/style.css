@@ -111,3 +111,5 @@ th { color: var(--muted); font-weight: 500; font-size: 11px; }
 .wn li { margin: 4px 0; }
 .wn:not(.latest) li { color: var(--muted); font-size: 12px; }
 .modal-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
+.opt-status { white-space: pre-wrap; margin: 6px 0; color: var(--muted); }
+.opt-status.good { color: var(--good); } .opt-status.warn { color: var(--warn); } .opt-status.bad { color: var(--bad); }

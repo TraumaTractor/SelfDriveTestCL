@@ -40,8 +40,9 @@ PC": click **More info → Run anyway**.
 
 The installed app updates itself from GitHub Releases - no reinstalling. A few seconds after start (and every
 6 hours) it looks at the latest release for `app-update.json`: if that is newer, it downloads it in the
-background and asks **Restart now / Later**. Your rules and settings are kept. A bad update rolls itself back
-(and is never retried). **Help → Check for Updates…** checks on demand.
+background and asks **Restart now / Later**. The **⚙ Options** button (top right) also has *Check for updates*,
+the version and *What's new*. Your rules and settings are kept. A bad update rolls itself back
+(and is never retried). **Help → Check for Updates…** (or ⚙ Options) checks on demand.
 
 To publish an update:
 1. Bump `version` in `package.json` (the number shown in the app's corner), add a matching entry at the top of
