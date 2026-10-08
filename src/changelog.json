@@ -1,5 +1,13 @@
 [
   {
+    "version": "0.8.1",
+    "title": "Clearer update errors",
+    "items": [
+      "If an update check fails, Options now explains why in plain English (for example: the release is still a draft or pre-release).",
+      "New releases are always published as the latest release, so installed apps can find them."
+    ]
+  },
+  {
     "version": "0.8.0",
     "title": "The app now updates itself",
     "items": [

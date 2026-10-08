@@ -71,3 +71,8 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist-apps/*
+          # The app asks GitHub for the "latest release", which ignores drafts and pre-releases,
+          # so always publish as a normal, latest release (even if it was created as a pre-release).
+          draft: false
+          prerelease: false
+          make_latest: 'true'

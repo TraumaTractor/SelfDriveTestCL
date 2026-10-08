@@ -1,4 +1,5 @@
 import { h } from './dom';
+import { updateHint } from './updateHints';
 import { showWhatsNewNow } from './whatsNew';
 
 /** The ⚙ Options dialog: app version, what's new, and checking for updates (desktop app). */
@@ -36,7 +37,7 @@ export function showOptions(version: string): void {
         case 'disabled': say('Updates are only checked in the installed app, not when run from source.', 'warn'); break;
         case 'busy': say('Already checking - try again in a moment.', 'warn'); break;
         default: {
-          say(`Couldn't check for updates: ${r.message ?? 'unknown error'}\n\n${r.hint ?? ''}`.trim(), 'bad');
+          say(`Couldn't check for updates: ${r.message ?? 'unknown error'}\n\n${updateHint(r.code) || r.hint || ''}`.trim(), 'bad');
           if (r.code === 'private-or-missing' || r.code === 'denied') {
             actions.append(h('button', { title: 'Copy a read-only GitHub token first', on: { click: async () => {
               const t = await desktop.useTokenFromClipboard();

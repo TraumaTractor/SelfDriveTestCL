@@ -135,3 +135,15 @@ describe('changelog', () => {
     expect(entriesToShow('0.8.0', '0.8.0')).toEqual([]);
   });
 });
+
+describe('update error hints', () => {
+  it('explains the common failures in plain English', async () => {
+    const { updateHint } = await import('../src/ui/updateHints');
+    expect(updateHint('private-or-missing')).toMatch(/pre-release/);
+    expect(updateHint('private-or-missing')).toMatch(/latest release/);
+    expect(updateHint('denied')).toMatch(/token/);
+    expect(updateHint('offline')).toMatch(/internet/);
+    expect(updateHint('no-asset')).toMatch(/app-update.json/);
+    expect(updateHint('something-else')).toBe('');
+  });
+});

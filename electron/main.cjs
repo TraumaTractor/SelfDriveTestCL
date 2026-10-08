@@ -77,7 +77,7 @@ function restartIntoUpdate() {
 
 function hintFor(code) {
   return code === 'private-or-missing'
-    ? 'GitHub would not show the releases. If the repository is private, give this computer a read-only token (Options → "Use token from clipboard", or Help menu), or make the repository public.'
+    ? 'GitHub has no published release to download. Common causes: the release is still a draft or marked "pre-release" (edit it and tick "Set as the latest release"), the build is still attaching files, or the repository is private (then use Options → "Use token from clipboard").'
     : code === 'denied' ? 'GitHub rejected the saved token. Create a new read-only token and use it again.'
     : code === 'offline' ? 'Check your internet connection and try again.' : '';
 }
