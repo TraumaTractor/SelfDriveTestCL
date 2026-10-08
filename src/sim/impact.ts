@@ -53,7 +53,8 @@ export function mergeImpact(world: World, me: Vehicle, target: number): MergeImp
       : idm(f.idm, f.v, v0, Infinity, 0);
     const after = idm(f.idm, f.v, v0, fol.gap, closing);
     const weight = Math.min(1, Math.max(0, (f.v - 2) / 10)) * 0.5;
-    imposed = Math.max(kinematic, weight * Math.max(0, before - after));
+    // capped: anything this large just means "we'd be touching"
+    imposed = Math.min(20, Math.max(kinematic, weight * Math.max(0, before - after)));
   }
 
   return {

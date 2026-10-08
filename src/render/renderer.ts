@@ -282,7 +282,7 @@ export class Renderer {
       ctx.strokeRect(fx - f.length * sx / 2 - 3, fy - laneH * 0.36, f.length * sx + 6, laneH * 0.72);
       const closingKmh = im.followerClosing * MS_TO_KMH;
       const l1 = `they would brake ${im.imposedDecel.toFixed(1)} m/s² (limit ${chk.limit.toFixed(1)})`;
-      const l2 = `${im.followerGap.toFixed(0)} m back · ${closingKmh >= 0 ? '+' : ''}${closingKmh.toFixed(0)} km/h vs us`;
+      const l2 = `${Math.max(0, im.followerGap).toFixed(0)} m back · ${closingKmh >= 0 ? '+' : ''}${closingKmh.toFixed(0)} km/h vs us`;
       const w = 205, hgt = 34;
       const tx = Math.min(Math.max(fx - w / 2, 6), this.w - w - 6);
       const ty = fy + laneH * 0.5 + 4;

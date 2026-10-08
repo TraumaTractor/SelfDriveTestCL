@@ -13,6 +13,27 @@ npm test           # simulation + rule-engine tests
 npm run build      # typecheck + production build
 ```
 
+## Desktop app (Mac)
+
+The app can run on its own as a normal Mac application - no browser, server or internet needed (Electron).
+
+```bash
+npm install
+npm run app        # build and open it in its own window right now
+npm run dist       # build a distributable .dmg into ./release  (run this on a Mac)
+```
+
+You can also let GitHub build the `.dmg` for you: *Actions → Build Mac app → Run workflow* (or push a tag
+such as `v0.6.0` to attach it to a Release), then download it from the run's artifacts.
+
+Install by dragging the app into Applications. The build is **unsigned**, so the first time you open it use
+**right-click → Open** (then *Open* again). If macOS says it is "damaged", run
+`xattr -cr "/Applications/Self-Drive Test Bench.app"` once.
+
+**Updating:** there is no auto-update (that needs a paid Apple developer account for signing). To update, build
+or download the new `.dmg` and drag the app over the old one. Your rule sets and settings are kept - they live in
+the app's own data folder, not in the app itself. Use *Export* on the rules tab if you want a backup.
+
 ## Using it
 
 * **Ego rules tab** – an ordered stack of rules. Toggle them, expand to tune parameters, reorder with ▲▼.

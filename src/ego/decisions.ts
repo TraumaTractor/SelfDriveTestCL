@@ -151,7 +151,7 @@ export class DecisionLog {
           const im = d.check?.impact;
           if (d.check && im) {
             why.push(im.follower
-              ? `safe to pull out: would make the ${world.cfg.personalities[im.follower.label as keyof typeof world.cfg.personalities]?.name ?? im.follower.label} driver ${im.followerGap.toFixed(0)} m behind brake ${im.imposedDecel.toFixed(1)} m/s² (limit ${d.check.limit.toFixed(1)})`
+              ? `safe to pull out: would make the ${world.cfg.personalities[im.follower.label as keyof typeof world.cfg.personalities]?.name ?? im.follower.label} driver ${Math.max(0, im.followerGap).toFixed(0)} m behind brake ${im.imposedDecel.toFixed(1)} m/s² (limit ${d.check.limit.toFixed(1)})`
               : `safe to pull out: nobody close behind in lane ${d.lane + 1}`);
           } else why.push('safety check is switched off: not checking who is behind');
           if (signalLead !== null) why.push(`signalling ${signalLead.toFixed(1)} s before moving so others can react`);

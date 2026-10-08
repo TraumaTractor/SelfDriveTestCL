@@ -1,18 +1,56 @@
 {
   "name": "self-drive-test-bench",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
+  "description": "Visualise and tweak self-driving rules on a simulated motorway",
+  "author": "Self-Drive Test Bench",
+  "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "app": "npm run build && electron .",
+    "dist": "npm run build && electron-builder --mac --universal",
+    "pack": "npm run build && electron-builder --dir"
   },
   "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
     "typescript": "~5.6.3",
     "vite": "^5.4.11",
     "vitest": "^2.1.8"
+  },
+  "build": {
+    "appId": "com.selfdrive.testbench",
+    "productName": "Self-Drive Test Bench",
+    "artifactName": "Self-Drive-Test-Bench-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "identity": null,
+      "icon": "build/icon.png"
+    },
+    "dmg": {
+      "title": "Self-Drive Test Bench"
+    }
   }
 }

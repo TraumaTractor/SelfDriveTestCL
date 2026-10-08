@@ -87,7 +87,7 @@ export class Ctx {
     if (im.followerGap < minGap) return info(false, `only ${Math.max(im.followerGap, 0).toFixed(1)}m clear behind`);
     if (im.leaderGap < minGap) return info(false, `only ${Math.max(im.leaderGap, 0).toFixed(1)}m clear ahead`);
     if (im.imposedDecel > maxImpact) {
-      const who = im.follower ? ` (${im.followerClosing >= 0 ? '+' : ''}${(im.followerClosing * 3.6).toFixed(0)} km/h, ${im.followerGap.toFixed(0)}m back)` : '';
+      const who = im.follower ? ` (${im.followerClosing >= 0 ? '+' : ''}${(im.followerClosing * 3.6).toFixed(0)} km/h, ${Math.max(0, im.followerGap).toFixed(0)}m back)` : '';
       return info(false, `would make them brake ${im.imposedDecel.toFixed(1)} m/s²${who}`);
     }
     if (im.selfDecel > maxSelfDecel) return info(false, `I'd need ${im.selfDecel.toFixed(1)} m/s² to match the car ahead`);
