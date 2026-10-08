@@ -25,6 +25,7 @@ export interface WorldConfig {
   /** relative share of each kind of vehicle */
   vehicleMix: Record<TrafficVehicleType, number>;
   weather: WeatherConfig;
+  hazards: HazardConfig;
   personalities: Record<PersonalityId, Personality>;
   egoStart: number;
   /** the road loops forever (laps repeat the same layout); otherwise the run ends after `laps` laps */
@@ -45,6 +46,7 @@ export function defaultConfig(): WorldConfig {
     mix: { great: 3, average: 5, cautious: 2, aggressive: 2, reckless: 1 },
     vehicleMix: { car: 70, van: 12, lorry: 9, motorcycle: 6, coach: 3 },
     weather: { kind: 'clear', intensity: 0.6 },
+    hazards: { rate: 0.3, breakdowns: true, debris: true, roadworks: true },
     personalities: clonePersonalities(),
     egoStart: 300,
     endless: true,
@@ -53,7 +55,38 @@ export function defaultConfig(): WorldConfig {
   };
 }
 
+export interface HazardConfig {
+  /** hazards per km of road ahead (0 = none) */
+  rate: number;
+  breakdowns: boolean;
+  debris: boolean;
+  roadworks: boolean;
+}
+
+/** A lane closed for roadworks, with a barrier at the start and a reduced speed limit. */
+export interface Works {
+  id: number;
+  lane: number;
+  start: number;
+  end: number;
+  limit: number;
+}
+
+export interface HazardInfo {
+  id: number;
+  kind: 'breakdown' | 'debris' | 'roadworks';
+  lane: number;
+  s: number;
+  announced: boolean;
+}
+
+/** Things that stay where they are. */
+const STATIC_DRIVER: Driver = {
+  decide: (_w, me) => ({ accel: me.v > 0.05 ? -8 : 0, wantLane: null, indicator: 0 }),
+};
+
 export type EventKind =
+  | 'hazard'
   | 'collision' | 'nearmiss' | 'cutoff' | 'lanechange' | 'unsignalled' | 'hardbrake' | 'info';
 export type Severity = 'good' | 'info' | 'warn' | 'bad';
 
@@ -97,6 +130,12 @@ export class World {
   /** weather right now: grip, visibility, how sensible drivers adapt */
   conditions: Conditions = CLEAR;
   private drift: WeatherDrift | null = null;
+  /** lanes closed for roadworks, and everything hazardous that has been placed ahead of the ego */
+  works: Works[] = [];
+  hazards: HazardInfo[] = [];
+  private hazardRng: Rng;
+  private nextHazardS = Infinity;
+  private nextHazardId = 1;
   /** distance at which a finite run ends */
   readonly totalLength: number;
 
@@ -115,6 +154,7 @@ export class World {
     this.metrics = new EgoMetrics();
     this.totalLength = cfg.endless ? Infinity : cfg.length * Math.max(1, cfg.laps);
     this.initWeather();
+    this.hazardRng = new Rng((cfg.seed ^ 0x7f4a7c15) >>> 0);
 
     const egoLane = Math.min(1, cfg.lanes - 1);
     const ego = this.makeVehicle('ego', 'Ego', '#35e0ff', 'car', cfg.egoStart, egoLane, speedLimitAt(this.road, cfg.egoStart), egoDriver);
@@ -122,6 +162,8 @@ export class World {
     this.ego = ego;
     this.vehicles.push(ego);
 
+    const hz = cfg.hazards ?? { rate: 0 };
+    if (hz.rate > 0) this.nextHazardS = cfg.egoStart + 900 + this.hazardRng.exp(1000 / hz.rate);
     this.seedFront = Math.max(0, cfg.egoStart - WINDOW_BEHIND);
     this.seedUpTo(cfg.egoStart + WINDOW_AHEAD);
     for (let l = 0; l < cfg.lanes; l++) {
@@ -306,6 +348,74 @@ export class World {
     return false;
   }
 
+  // ----------------------------------------------------------------------- hazards
+
+  /** Posted limit at s, including the reduced limit approaching and inside roadworks. */
+  limitAt(s: number): number {
+    let lim = speedLimitAt(this.road, s);
+    for (const w of this.works) if (s >= w.start - 250 && s <= w.end + 30) lim = Math.min(lim, w.limit);
+    return lim;
+  }
+
+  /** Is any part of [s0, s1] in `lane` closed for roadworks? */
+  laneClosed(lane: number, s0: number, s1: number): boolean {
+    return this.works.some((w) => w.lane === lane && s1 >= w.start && s0 <= w.end);
+  }
+
+  private spawnHazards(): void {
+    const h = this.cfg.hazards;
+    if (!h || h.rate <= 0) return;
+    while (this.nextHazardS < this.ego.s + WINDOW_AHEAD - 50) {
+      this.createHazard(this.nextHazardS);
+      this.nextHazardS += 400 + this.hazardRng.exp(1000 / h.rate);
+    }
+    // tell the log about hazards as the ego gets near
+    for (const hz of this.hazards) {
+      if (!hz.announced && hz.s - this.ego.s < 500 && hz.s > this.ego.s) {
+        hz.announced = true;
+        const what = hz.kind === 'roadworks' ? `Roadworks ahead: lane ${hz.lane + 1} closed` : hz.kind === 'debris' ? `Debris ahead in lane ${hz.lane + 1}` : `Broken-down vehicle ahead in lane ${hz.lane + 1}`;
+        this.log('hazard', 'warn', what);
+      }
+    }
+  }
+
+  private createHazard(s: number): void {
+    const h = this.cfg.hazards;
+    const r = this.hazardRng;
+    const weights = { breakdown: h.breakdowns ? 0.45 : 0, debris: h.debris ? 0.3 : 0, roadworks: h.roadworks ? 0.25 : 0 };
+    if (weights.breakdown + weights.debris + weights.roadworks <= 0) return;
+    const kind = r.weighted(weights);
+    const id = this.nextHazardId++;
+    const lanes = this.cfg.lanes;
+
+    if (kind === 'roadworks') {
+      const lane = r.chance(0.5) ? 0 : lanes - 1;
+      const end = s + r.range(250, 500);
+      this.clearArea(lane, s - 12, end);
+      this.works.push({ id, lane, start: s, end, limit: 22.2 });
+      const barrier = this.makeVehicle('traffic', 'hazard', '#e8452c', 'barrier', s, lane, 0, STATIC_DRIVER);
+      barrier.isStatic = true;
+      this.vehicles.push(barrier);
+      this.hazards.push({ id, kind, lane, s, announced: false });
+      return;
+    }
+
+    const lane = r.int(0, lanes - 1);
+    const type: VehicleType = kind === 'debris' ? 'debris' : VEHICLE_TYPES[r.int(0, VEHICLE_TYPES.length - 1)];
+    const spec = VEHICLE_SPECS[type];
+    this.clearArea(lane, s - spec.length / 2 - 10, s + spec.length / 2 + 10);
+    const v = this.makeVehicle('traffic', 'hazard', type === 'debris' ? '#8b7355' : '#cfd5dd', type, s, lane, 0, STATIC_DRIVER);
+    v.isStatic = true;
+    v.hazard = kind === 'breakdown';
+    this.vehicles.push(v);
+    this.hazards.push({ id, kind, lane, s, announced: false });
+  }
+
+  /** Remove ordinary traffic from a stretch of one lane (hazards are created well beyond the visible area). */
+  private clearArea(lane: number, s0: number, s1: number): void {
+    this.vehicles = this.vehicles.filter((v) => v === this.ego || v.isStatic || !(v.s >= s0 && v.s <= s1 && (Math.abs(v.y - lane) < 0.9 || v.targetLane === lane)));
+  }
+
   // ------------------------------------------------------------------ weather
 
   private initWeather(): void {
@@ -346,7 +456,7 @@ export class World {
         for (let j = i + 1; j < list.length && j <= i + 3; j++) {
           const b = list[j];
           if (b.s - a.s >= (a.length + b.length) / 2) break;
-          if (a.crashed && b.crashed) continue;
+          if ((a.crashed || a.isStatic) && (b.crashed || b.isStatic)) continue;
           if (this.lateralGap(a, b) > -half) continue;
           this.crash(a, b);
         }
@@ -356,7 +466,7 @@ export class World {
 
   private crash(a: Vehicle, b: Vehicle): void {
     for (const v of [a, b]) {
-      if (v.crashed) continue;
+      if (v.crashed || v.isStatic) continue; // a barrier or broken-down car just sits there
       v.crashed = true;
       v.crashTime = this.time;
       v.v = 0;
@@ -366,15 +476,23 @@ export class World {
     if (a === this.ego || b === this.ego) {
       const other = a === this.ego ? b : a;
       this.metrics.collisions++;
-      this.log('collision', 'bad', `Ego collided with a ${other.label} vehicle`);
+      this.log('collision', 'bad', other.isStatic ? `Ego hit ${this.describe(other)}` : `Ego collided with a ${other.label} vehicle`);
     } else {
       this.trafficCollisions++;
-      this.log('collision', 'warn', `Traffic collision: ${a.label} / ${b.label}`);
+      this.log('collision', 'warn', a.isStatic || b.isStatic ? `A ${(a.isStatic ? b : a).label} driver hit ${this.describe(a.isStatic ? a : b)}` : `Traffic collision: ${a.label} / ${b.label}`);
     }
+  }
+
+  /** "debris", "a road closure", "a stationary lorry" */
+  private describe(v: Vehicle): string {
+    const n = VEHICLE_SPECS[v.type].noun;
+    return v.type === 'debris' || v.type === 'barrier' ? (v.type === 'debris' ? 'debris' : 'a road closure') : `a stationary ${n}`;
   }
 
   private cleanup(): void {
     const egoS = this.ego.s;
+    this.works = this.works.filter((w) => w.end > egoS - WINDOW_BEHIND);
+    this.hazards = this.hazards.filter((h) => h.s > egoS - WINDOW_BEHIND);
     this.vehicles = this.vehicles.filter((v) => {
       if (v === this.ego) return true;
       if (v.crashed && this.time - v.crashTime > WRECK_LIFETIME) return false;
@@ -386,6 +504,7 @@ export class World {
     const { cfg } = this;
     // front: seed fresh traffic as the horizon advances
     this.seedUpTo(this.ego.s + WINDOW_AHEAD);
+    this.spawnHazards();
 
     // rear: occasional faster vehicles catching up from behind
     const flow = (cfg.density / 1000) * 5; // veh/s/lane
@@ -465,6 +584,7 @@ export class World {
   }
 
   private trySpawn(id: PersonalityId, s: number, lane: number, v: number): Vehicle | null {
+    if (lane >= 0 && this.laneClosed(lane, s - 12, s + 12)) return null; // roadworks
     const type = this.pickVehicleType(lane);
     const spec = VEHICLE_SPECS[type];
     // refuse if it would overlap an existing vehicle

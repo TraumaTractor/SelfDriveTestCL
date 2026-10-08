@@ -47,6 +47,16 @@ export function trafficPanel(app: App): Panel {
         label: 'Intensity', min: 0.1, max: 1, step: 0.05, value: cfg.weather.intensity,
         onInput: (v) => { cfg.weather.intensity = v; app.trafficDirty(); },
       })]),
+      h('h4', {}, 'Road hazards'),
+      h('div', { class: 'set-row' }, h('span', {}, 'How many', h('small', {}, 'Breakdowns, debris and roadworks that close a lane')),
+        (() => {
+          const levels: [string, number][] = [['Off', 0], ['Few', 0.3], ['Some', 0.7], ['Many', 1.5]];
+          const sel = h('select', { on: { change: () => { cfg.hazards.rate = Number(sel.value); app.trafficDirty(); build(); } } },
+            ...levels.map(([label, rate]) => h('option', { value: String(rate), selected: Math.abs(cfg.hazards.rate - rate) < 0.01 }, label)));
+          return sel;
+        })()),
+      ...(cfg.hazards.rate > 0 ? ([['breakdowns', 'Broken-down vehicles'], ['debris', 'Debris in the road'], ['roadworks', 'Roadworks (lane closed)']] as const).map(([key, label]) =>
+        toggle({ label, value: cfg.hazards[key], onChange: (v) => { cfg.hazards[key] = v; app.trafficDirty(); } })) : []),
       h('h4', {}, 'Vehicle mix'),
       ...VEHICLE_TYPES.map((t) => slider({
         label: VEHICLE_SPECS[t].label, min: 0, max: 100, step: 1, value: cfg.vehicleMix[t],

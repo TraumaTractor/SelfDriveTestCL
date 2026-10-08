@@ -4,7 +4,7 @@ import { VEHICLE_SPECS } from '../sim/vehicle';
 import { drawRear } from './sprites';
 import { drawDashWeather, fogAlpha } from './weatherFx';
 import type { EgoReport } from '../ego/egoDriver';
-import { rampInstances, speedLimitAt, zoneInstances } from '../sim/road';
+import { rampInstances, zoneInstances } from '../sim/road';
 import type { Vehicle } from '../sim/vehicle';
 import type { World } from '../sim/world';
 
@@ -128,6 +128,31 @@ export class Dashcam {
       items.push({ z, draw: () => this.sign(px(right + 1.6, z), py(2.2, z), py(0, z), f / z, Math.round(U.speedValue(zn.limit) / (U.getUnits() === 'imperial' ? 5 : 10)) * (U.getUnits() === 'imperial' ? 5 : 10)) });
     }
 
+    // roadworks: tinted closed lane, cones, the reduced-limit sign and a warning triangle behind breakdowns
+    for (const wk of world.works) {
+      const a = Math.max(wk.start - camS, Z_NEAR), b = Math.min(wk.end - camS, Z_FAR);
+      if (b > a) {
+        ctx.fillStyle = 'rgba(255,140,0,0.22)';
+        this.ground((wk.lane - 0.5) * lw, (wk.lane + 0.5) * lw, a, b, px, py);
+      }
+      for (let m = Math.ceil((wk.start - 36) / 10) * 10; m <= wk.end && m - camS < Z_FAR; m += 10) {
+        const z = m - camS;
+        if (z < Z_NEAR || z > Z_FAR) continue;
+        for (const edge of [-0.47, 0.47]) items.push({ z, draw: () => this.cone(px((wk.lane + edge) * lw, z), py(0, z), f / z) });
+      }
+      const zs = wk.start - 250 - camS;
+      if (zs > Z_NEAR && zs < Z_FAR) {
+        const step = U.getUnits() === 'imperial' ? 5 : 10;
+        items.push({ z: zs, draw: () => this.sign(px(right + 1.6, zs), py(2.2, zs), py(0, zs), f / zs, Math.round(U.speedValue(wk.limit) / step) * step) });
+      }
+    }
+    for (const v of world.vehicles) {
+      if (v.isStatic && v.hazard) {
+        const z = v.s - v.length / 2 - 22 - camS;
+        if (z > Z_NEAR && z < Z_FAR) items.push({ z, draw: () => this.triangle(px(v.y * lw, z), py(0, z), f / z) });
+      }
+    }
+
     // vehicles ahead
     const vehicles = world.vehicles.filter((v) => v !== ego).map((v) => ({ v, z: lerp(v.prevS, v.s) - v.length / 2 - camS }))
       .filter((e) => e.z > Z_NEAR && e.z < Z_FAR);
@@ -225,6 +250,33 @@ export class Dashcam {
     drawRear(this.ctx, v, x0, y0, x1 - x0, y1 - y0, time);
   }
 
+  private cone(x: number, y: number, k: number): void {
+    if (k < 0.8) return;
+    const { ctx } = this;
+    ctx.fillStyle = '#ff7a00';
+    ctx.beginPath();
+    ctx.moveTo(x - k * 0.18, y); ctx.lineTo(x + k * 0.18, y); ctx.lineTo(x, y - k * 0.6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(x - k * 0.1, y - k * 0.33, k * 0.2, k * 0.08);
+  }
+
+  private triangle(x: number, y: number, k: number): void {
+    if (k < 0.8) return;
+    const { ctx } = this;
+    ctx.fillStyle = '#d9342b';
+    ctx.beginPath();
+    ctx.moveTo(x - k * 0.25, y); ctx.lineTo(x + k * 0.25, y); ctx.lineTo(x, y - k * 0.42);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.moveTo(x - k * 0.13, y - k * 0.04); ctx.lineTo(x + k * 0.13, y - k * 0.04); ctx.lineTo(x, y - k * 0.26);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   private tree(x: number, y: number, k: number, hs: number, pal: (typeof PAL)['light']): void {
     const { ctx } = this;
     if (k < 0.6) return;
@@ -304,7 +356,7 @@ export class Dashcam {
     ctx.font = '11px system-ui, sans-serif';
     ctx.fillStyle = '#8d94a0';
     ctx.fillText(U.speedUnit(), w / 2 + 34, h - 9);
-    const limit = speedLimitAt(world.road, ego.s);
+    const limit = world.limitAt(ego.s);
     ctx.textAlign = 'left';
     ctx.fillStyle = ego.v > limit * 1.02 ? '#ff9340' : '#8d94a0';
     ctx.fillText(`limit ${U.speedValue(limit).toFixed(0)}`, 12, h - 10);

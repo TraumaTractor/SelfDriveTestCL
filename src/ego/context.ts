@@ -56,6 +56,7 @@ export class Ctx {
   /** Human name for a vehicle, e.g. "Great driver" or "wreck". */
   name(v: Vehicle): string {
     if (v.crashed) return 'wreck';
+    if (v.isStatic) return v.type === 'barrier' ? 'road closure' : v.type === 'debris' ? 'debris' : `stationary ${VEHICLE_SPECS[v.type].noun}`;
     const p = this.world.cfg.personalities[v.label as PersonalityId];
     return p ? `${p.name} driver` : v.label;
   }
@@ -105,6 +106,7 @@ export class Ctx {
     const { world, me } = this;
     const empty = { impact: null, ok: false, reason: 'no such lane', limit: maxImpact };
     if (target < 0 || target >= world.cfg.lanes) return empty;
+    if (world.laneClosed(target, me.s - 10, me.s + 200)) return { impact: null, ok: false, reason: 'that lane is closed ahead (roadworks)', limit: maxImpact };
     const im = mergeImpact(world, me, target);
     const info = (ok: boolean, reason: string): MergeCheck => ({ impact: im, ok, reason, limit: maxImpact });
 

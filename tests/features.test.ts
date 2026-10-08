@@ -190,3 +190,89 @@ describe('weather', () => {
     expect(run(false)).toBeGreaterThanOrEqual(run(true));
   });
 });
+
+const still = { decide: () => ({ accel: 0, wantLane: null, indicator: 0 as const }) };
+
+describe('road hazards', () => {
+  function hazardWorld(rules: RuleSet, kinds: { breakdowns?: boolean; debris?: boolean; roadworks?: boolean }, seed = 3) {
+    const cfg = defaultConfig();
+    cfg.endless = false;
+    cfg.seed = seed;
+    cfg.hazards = { rate: 2, breakdowns: false, debris: false, roadworks: false, ...kinds };
+    return new World(cfg, new EgoDriver(rules));
+  }
+
+  it('places hazards ahead of the ego and announces them', () => {
+    const w = hazardWorld(new RuleSet(), { breakdowns: true, debris: true, roadworks: true });
+    for (let i = 0; i < 20 * 120; i++) w.step(0.05);
+    expect(w.hazards.length).toBeGreaterThan(0);
+    expect(w.vehicles.some((v) => v.isStatic)).toBe(true);
+    expect(w.events.some((e) => e.kind === 'hazard')).toBe(true);
+  });
+
+  it('roadworks close a lane: a barrier, a reduced limit, and nobody changes into it', () => {
+    const w = hazardWorld(new RuleSet(), { roadworks: true }, 5);
+    let closedSeen = 0;
+    for (let i = 0; i < 20 * 200 && w.status === 'running'; i++) {
+      w.step(0.05);
+      for (const wk of w.works) {
+        closedSeen++;
+        expect(w.limitAt(wk.start + 50)).toBeLessThan(25);
+        if (w.ego.s < wk.start + 400) expect(w.vehicles.some((v) => v.type === 'barrier' && Math.abs(v.s - wk.start) < 1)).toBe(true);
+        // no ordinary vehicle drives inside the closed section
+        for (const v of w.vehicles) {
+          if (!v.isStatic && v.s > wk.start + 5 && v.s < wk.end && Math.abs(v.y - wk.lane) < 0.3) throw new Error('vehicle inside a closed lane');
+        }
+      }
+    }
+    expect(closedSeen).toBeGreaterThan(0);
+  });
+
+  it('a static obstacle is not removed by a collision: only the vehicle that hit it crashes', () => {
+    const cfg = defaultConfig();
+    cfg.endless = false;
+    cfg.density = 0.5;
+    cfg.hazards = { rate: 0, breakdowns: false, debris: false, roadworks: false };
+    const rules = new RuleSet();
+    for (const i of rules.items) i.enabled = i.id === 'keep-speed'; // a car that simply drives on
+    const w = new World(cfg, new EgoDriver(rules));
+    const debris = { ...w.ego, id: 77, kind: 'traffic' as const, type: 'debris' as const, label: 'hazard', length: 0.9, width: 0.9, isStatic: true, s: 400, prevS: 400, y: 1, prevY: 1, targetLane: 1, v: 0, a: 0, driver: still };
+    w.vehicles = [w.ego, debris];
+    w.ego.v = 28;
+    for (let i = 0; i < 20 * 10 && w.status === 'running'; i++) w.step(0.05);
+    expect(w.status).toBe('crashed');
+    expect(w.ego.crashed).toBe(true);
+    expect(debris.crashed).toBe(false);
+    expect(w.events.some((e) => /Ego hit debris/.test(e.text))).toBe(true);
+  });
+
+  it('with the avoid-obstacle rule the car moves over early instead of braking hard', () => {
+    const run = (avoid: boolean) => {
+      const cfg = defaultConfig();
+      cfg.endless = false;
+      cfg.density = 0.5;
+      cfg.hazards = { rate: 0, breakdowns: false, debris: false, roadworks: false };
+      const rules = new RuleSet();
+      rules.get('avoid-obstacle')!.enabled = avoid;
+      rules.get('overtake')!.enabled = false;
+      rules.get('return-slow-lane')!.enabled = false;
+      const w = new World(cfg, new EgoDriver(rules));
+      const stopped = { ...w.ego, id: 78, kind: 'traffic' as const, type: 'car' as const, label: 'hazard', isStatic: true, hazard: true, s: 900, prevS: 900, y: 1, prevY: 1, targetLane: 1, v: 0, a: 0, driver: still };
+      w.vehicles = [w.ego, stopped];
+      w.ego.v = 30;
+      let minSpeed = 99, minA = 0;
+      for (let i = 0; i < 20 * 40 && w.status === 'running'; i++) {
+        w.step(0.05);
+        if (w.ego.s < 900) { minSpeed = Math.min(minSpeed, w.ego.v); minA = Math.min(minA, w.ego.a); }
+        if (w.ego.s > 960) break;
+      }
+      return { status: w.status, minSpeed, minA, lane: w.ego.targetLane };
+    };
+    const withRule = run(true);
+    expect(withRule.status).toBe('running');
+    expect(withRule.lane).not.toBe(1);
+    expect(withRule.minSpeed).toBeGreaterThan(20); // never had to slow much
+    const without = run(false);
+    expect(without.minSpeed).toBeLessThan(withRule.minSpeed);
+  });
+});

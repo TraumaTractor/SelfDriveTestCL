@@ -1,5 +1,4 @@
 import { clamp } from '../common';
-import { speedLimitAt } from './road';
 import type { Vehicle } from './vehicle';
 import type { World } from './world';
 import * as U from '../units';
@@ -49,7 +48,7 @@ export class EgoMetrics {
     const ego = world.ego;
     this.time += dt;
     this.distance += ego.v * dt;
-    this.limitTime += speedLimitAt(world.road, ego.s) * dt;
+    this.limitTime += world.limitAt(ego.s) * dt;
 
     const jerk = (ego.a - this.prevA) / dt;
     this.jerkSq += jerk * jerk * dt;
