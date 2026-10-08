@@ -48,10 +48,11 @@ export class Renderer {
     const sOf = (px: number) => camS + (px - this.w / 2) / sx;
     const xOf = (s: number) => (s - camS) * sx + this.w / 2;
 
-    // vertical layout: road centred, lane 0 at the bottom
+    // Vehicles drive left-to-right and keep LEFT (UK style): the slow lane (lane 0) is the
+    // driver's left, i.e. the top of the screen. Overtaking lanes are below it, on-ramps join on the left.
     const roadH = (lanes + 1) * lw * sy;
-    const bottom = this.h / 2 + roadH / 2 - lw * sy * 0.5 - 8;
-    const yOf = (lane: number) => bottom - lane * lw * sy;
+    const lane0Y = this.h / 2 - roadH / 2 + lw * sy * 1.5 + 8;
+    const yOf = (lane: number) => lane0Y + lane * lw * sy;
 
     // grass + scenery
     ctx.fillStyle = '#1f3a2a';
@@ -59,13 +60,13 @@ export class Renderer {
     this.scenery(sOf(0), sOf(this.w), xOf, yOf, lanes, lw * sy, sx);
 
     // asphalt
-    const top = yOf(lanes - 1) - lw * sy / 2;
-    const bot = yOf(0) + lw * sy / 2;
+    const top = yOf(0) - lw * sy / 2;
+    const bot = yOf(lanes - 1) + lw * sy / 2;
     ctx.fillStyle = '#34383f';
     ctx.fillRect(0, top, this.w, bot - top);
-    // verge lines
+    // verge line along the outer (overtaking) edge
     ctx.fillStyle = '#e8e8e8';
-    ctx.fillRect(0, top, this.w, 2);
+    ctx.fillRect(0, bot - 2, this.w, 2);
 
     // ramps (acceleration lanes) with tapers
     const rampY = yOf(-1);
@@ -75,10 +76,10 @@ export class Renderer {
       const rampH = lw * sy;
       ctx.fillStyle = '#3d424b';
       ctx.beginPath();
-      ctx.moveTo(x0 - 40, rampY + rampH / 2);
-      ctx.lineTo(x0 + 30, rampY - rampH / 2);
-      ctx.lineTo(x1, rampY - rampH / 2);
+      ctx.moveTo(x0 - 40, rampY - rampH / 2);
+      ctx.lineTo(x0 + 30, rampY + rampH / 2);
       ctx.lineTo(x1, rampY + rampH / 2);
+      ctx.lineTo(x1, rampY - rampH / 2);
       ctx.closePath();
       ctx.fill();
       // broken line separating the ramp from the slow lane
@@ -86,8 +87,8 @@ export class Renderer {
       ctx.lineWidth = 2;
       ctx.setLineDash([sx * 1.5, sx * 1.5]);
       ctx.beginPath();
-      ctx.moveTo(x0 + 30, rampY - rampH / 2);
-      ctx.lineTo(x1, rampY - rampH / 2);
+      ctx.moveTo(x0 + 30, rampY + rampH / 2);
+      ctx.lineTo(x1, rampY + rampH / 2);
       ctx.stroke();
       ctx.setLineDash([]);
       // end barrier
@@ -99,7 +100,7 @@ export class Renderer {
     // lane markings
     ctx.lineWidth = 2;
     for (let l = 0; l < lanes - 1; l++) {
-      const y = yOf(l) - lw * sy / 2;
+      const y = yOf(l) + lw * sy / 2;
       ctx.strokeStyle = '#d9d9d9';
       ctx.setLineDash([sx * 3, sx * 6]);
       ctx.lineDashOffset = -((-camS * sx) % (sx * 9));
@@ -109,10 +110,10 @@ export class Renderer {
       ctx.stroke();
     }
     ctx.setLineDash([]);
-    // solid edge line at the bottom (broken where a ramp joins)
+    // solid edge line along the slow lane (broken where a ramp joins)
     ctx.strokeStyle = '#d9d9d9';
     ctx.beginPath();
-    const edgeY = yOf(0) + lw * sy / 2;
+    const edgeY = yOf(0) - lw * sy / 2;
     let x = 0;
     const rampsSorted = [...world.road.ramps].sort((a, b) => a.start - b.start);
     for (const r of rampsSorted) {
@@ -127,7 +128,7 @@ export class Renderer {
     for (const z of world.road.zones) {
       const px = xOf(z.start);
       if (px < -40 || px > this.w + 40) continue;
-      this.sign(px, top - 16, Math.round(z.limit * MS_TO_KMH / 10) * 10);
+      this.sign(px, bot + 16, Math.round(z.limit * MS_TO_KMH / 10) * 10);
     }
 
     // vehicles (wrecks first so they sit underneath)
@@ -192,8 +193,8 @@ export class Renderer {
         ctx.arc(-len / 2 + 2, side * (wid / 2 - 2), 3, 0, Math.PI * 2);
         ctx.fill();
       };
-      if (hazards || v.indicator === 1) lit(-1); // up on screen
-      if (hazards || v.indicator === -1) lit(1);
+      if (hazards || v.indicator === 1) lit(1); // overtaking side = down on screen
+      if (hazards || v.indicator === -1) lit(-1);
     }
     if (v.crashed) {
       ctx.strokeStyle = '#ff4d6a';
@@ -297,8 +298,8 @@ export class Renderer {
 
   private scenery(s0: number, s1: number, xOf: (s: number) => number, yOf: (l: number) => number, lanes: number, laneH: number, sx: number): void {
     const { ctx } = this;
-    const top = yOf(lanes - 1) - laneH / 2;
-    const bot = yOf(0) + laneH / 2;
+    const top = yOf(0) - laneH * 1.5;
+    const bot = yOf(lanes - 1) + laneH / 2;
     const step = 37;
     for (let s = Math.floor(s0 / step) * step; s < s1 + step; s += step) {
       const hsh = hash(s);

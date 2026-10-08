@@ -26,6 +26,9 @@ npm run build      # typecheck + production build
   unsignalled lane changes…), and a **batch test**: run the current rules over N consecutive seeds headlessly,
   set the result as a baseline, tweak a rule, run again and see the deltas.
 
+Traffic drives on the left (UK style): the slow lane is the top lane on screen, overtaking lanes are below it,
+and on-ramps join on the left. Great drivers sit in the slow lane unless they are overtaking.
+
 Keys: `Space` play/pause, `R` restart.
 
 ### How rules combine

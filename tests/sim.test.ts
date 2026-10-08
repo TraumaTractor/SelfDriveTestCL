@@ -4,6 +4,9 @@ import { RuleSet } from '../src/ego/rules';
 import { PRESETS } from '../src/ego/presets';
 import { runHeadless, SIM_DT } from '../src/sim/headless';
 import { defaultConfig, World } from '../src/sim/world';
+import { TrafficDriver } from '../src/drivers/trafficDriver';
+import { PERSONALITIES } from '../src/drivers/personality';
+import { Rng } from '../src/sim/rng';
 
 function greatOnly() {
   const cfg = defaultConfig();
@@ -83,6 +86,28 @@ describe('driver personalities', () => {
       return total / n;
     };
     expect(mean('great')).toBeGreaterThan(mean('reckless') + 10);
+  });
+});
+
+describe('lane discipline', () => {
+  function lonely(id: 'great' | 'reckless') {
+    const cfg = defaultConfig();
+    cfg.density = 0.5;
+    cfg.rampRate = 0;
+    const w = new World(cfg, new EgoDriver(new RuleSet()));
+    const p = PERSONALITIES[id];
+    const v = {
+      ...w.ego, id: 99, kind: 'traffic' as const, label: id, s: 600, prevS: 600, y: 2, prevY: 2, targetLane: 2, v: 30,
+      driver: new TrafficDriver(p, new Rng(5)),
+    };
+    w.vehicles = [w.ego, v];
+    Object.assign(w.ego, { s: 100, prevS: 100 });
+    for (let i = 0; i < 20 * 40 && w.status === 'running'; i++) w.step(0.05);
+    return v.targetLane;
+  }
+
+  it('a great driver on an empty road moves back to the slow (left) lane', () => {
+    expect(lonely('great')).toBe(0);
   });
 });
 

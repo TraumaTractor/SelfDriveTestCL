@@ -41,7 +41,7 @@ export const PERSONALITIES: Record<PersonalityId, Personality> = {
   great: {
     name: 'Great', color: '#3ecf8e', speedFactor: 1.0, headway: 1.8, minGap: 2.5, accel: 1.3, decel: 1.8,
     reaction: 0.25, signalProb: 1, signalLead: 2.5, politeness: 0.8, courtesy: 0.95, gapFactor: 1.5,
-    changeThreshold: 0.35, keepSlowLane: 0.9, lapseRate: 0, safeDecel: 2.0,
+    changeThreshold: 0.35, keepSlowLane: 1, lapseRate: 0, safeDecel: 2.0,
   },
   average: {
     name: 'Average', color: '#4da3ff', speedFactor: 1.05, headway: 1.4, minGap: 2.0, accel: 1.6, decel: 2.2,

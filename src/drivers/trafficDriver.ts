@@ -154,6 +154,14 @@ export class TrafficDriver implements Driver {
     let best: number | null = null;
     let bestScore = p.changeThreshold;
 
+    // Lane discipline: keep to the slow (left) lane unless overtaking. Move back as soon as the
+    // slow lane ahead is clear enough that it won't hold us up.
+    if (lane > 0 && p.keepSlowLane >= 0.5 && this.rng.chance(p.keepSlowLane) && this.isSafe(w, me, lane - 1, v0, 1)) {
+      const ahead = w.leaderIn(me, lane - 1);
+      const room = 0.8 * p.headway * me.v + p.minGap + 5;
+      if (!ahead || (ahead.gap > room && ahead.veh.v > me.v - 1.5)) return lane - 1;
+    }
+
     for (const target of [lane + 1, lane - 1]) {
       if (target < 0 || target >= w.cfg.lanes) continue;
       if (!this.isSafe(w, me, target, v0, 1)) continue;
