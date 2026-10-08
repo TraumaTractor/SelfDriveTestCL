@@ -1,5 +1,12 @@
 [
   {
+    "version": "0.10.1",
+    "title": "Fix blank screen after updating",
+    "items": [
+      "Fixed a blank window on start-up when settings saved by an older version were loaded (new driver traits were missing). Saved traffic settings are now merged with the defaults, and if start-up ever fails the app resets its saved data instead of showing a blank screen."
+    ]
+  },
+  {
     "version": "0.10.0",
     "title": "Weather, road hazards, replay and sound",
     "items": [
