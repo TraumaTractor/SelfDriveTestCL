@@ -19,6 +19,10 @@ npm run build      # typecheck + production build
   Edits apply *live* to the running car; the card for whichever rule is currently driving lights up, and the
   on-canvas readout says what is controlling acceleration / lane changes and why a lane change was vetoed.
   Presets, JSON export/import and auto-save (localStorage) are included.
+* **Decisions tab** – a plain-English log of what the car decided and why: speed control changes (which rule took
+  over, what every other rule proposed and why it was overruled), planned / completed / abandoned lane changes
+  (with the impact check and signalling), lane changes blocked by a rule, and emergency brakes. Click an entry for
+  the full situation. Above it, a breakdown of which rule was driving the speed.
 * **Traffic tab** – seed, lanes, length, density, on-ramp flow, the driver mix, and every parameter of each
   driver personality (headway, politeness, signalling probability, gap accepted when merging, reaction time,
   attention lapses…). Applies on restart.
@@ -28,6 +32,14 @@ npm run build      # typecheck + production build
 
 Traffic drives on the left (UK style): the slow lane is the top lane on screen, overtaking lanes are below it,
 and on-ramps join on the left. Great drivers sit in the slow lane unless they are overtaking.
+
+**Views**: top-down, top-down with a *driver dashcam* inset (click it to enlarge), or full dashcam - a
+perspective view from the driver's seat with a rear-view mirror, the tracked vehicle, speed signs and the
+indicator.
+
+**Endless loop**: the road is a loop - the same layout (speed zones, on-ramps) repeats lap after lap and the run
+never finishes (switch off *Endless road* in the Traffic tab to finish after N laps). The ring in the corner
+shows where you are on the loop. Batch tests score one lap per seed.
 
 Keys: `Space` play/pause, `R` restart.
 

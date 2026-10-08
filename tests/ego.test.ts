@@ -158,6 +158,30 @@ describe('ego rule stack', () => {
     expect(allowed.laneBy).toBe('return-slow-lane');
   });
 
+  it('writes down what it decided and why', () => {
+    const { world, driver } = scenario(new RuleSet(), [car(50, 490, 1, 15)]);
+    for (let i = 0; i < 20 * 14; i++) world.step(0.05);
+    const log = driver.log;
+    const plan = log.records.find((r) => r.kind === 'lane' && r.title.startsWith('Plan'));
+    expect(plan).toBeDefined();
+    expect(plan!.rules).toContain('overtake');
+    expect(plan!.why.join(' ')).toMatch(/slower than my/);
+    expect(plan!.why.join(' ')).toMatch(/signalling/);
+    expect(plan!.outcome).toMatch(/completed|signalled/);
+    expect(log.counts.planned).toBeGreaterThanOrEqual(1);
+    expect(log.records.some((r) => r.kind === 'speed')).toBe(true);
+    expect(log.totalTime).toBeGreaterThan(10);
+  });
+
+  it('logs a blocked lane change with the rule that vetoed it', () => {
+    const { world, driver } = scenario(new RuleSet(), [car(50, 360, 1, 15), car(51, 296, 2, 30)]);
+    for (let i = 0; i < 10; i++) world.step(0.05);
+    const blocked = driver.log.records.find((r) => r.kind === 'blocked');
+    expect(blocked).toBeDefined();
+    expect(blocked!.rules).toContain('lane-change-safety');
+    expect(blocked!.why.join(' ')).toMatch(/vetoed/);
+  });
+
   it('moves over for a car on the on-ramp beside it', () => {
     const ramp = car(70, 310, -1, 25);
     ramp.onRamp = true;

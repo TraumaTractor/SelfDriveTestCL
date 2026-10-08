@@ -48,6 +48,7 @@ describe('simulation', () => {
     const cfg = greatOnly();
     cfg.seed = 3;
     cfg.length = 3000;
+    cfg.endless = false;
     const w = new World(cfg, new EgoDriver(new RuleSet()));
     while (w.status === 'running') w.step(SIM_DT);
     expect(w.trafficCollisions).toBe(0);
@@ -141,6 +142,44 @@ describe('considerate traffic drivers', () => {
 
   it('but does move over for a much slower car', () => {
     expect(follow(15)).toBe(2);
+  });
+});
+
+describe('endless loop', () => {
+  it('keeps running lap after lap on a repeating road, with bounded traffic', () => {
+    const cfg = defaultConfig();
+    cfg.length = 2500;
+    cfg.seed = 3;
+    const w = new World(cfg, new EgoDriver(new RuleSet()));
+    let peak = 0;
+    for (let i = 0; i < 20 * 400 && w.status === 'running'; i++) {
+      w.step(0.05);
+      peak = Math.max(peak, w.vehicles.length);
+    }
+    expect(w.status).toBe('running');
+    expect(w.lap).toBeGreaterThanOrEqual(2);
+    expect(w.ego.s).toBeGreaterThan(cfg.length * 2);
+    expect(peak).toBeLessThan(220);
+    expect(Number.isFinite(w.ego.v)).toBe(true);
+  });
+
+  it('the road layout repeats every lap', async () => {
+    const { speedLimitAt, rampAt, distanceToNextRamp } = await import('../src/sim/road');
+    const w = new World({ ...defaultConfig(), length: 3000 }, new EgoDriver(new RuleSet()));
+    const r = w.road;
+    for (const s of [10, 777, 1500, 2999]) expect(speedLimitAt(r, s + 3000)).toBe(speedLimitAt(r, s));
+    const ramp = r.ramps[0];
+    expect(rampAt(r, ramp.start + 10 + 3000)?.start).toBe(ramp.start + 3000);
+    expect(distanceToNextRamp(r, ramp.end + 5)).toBeGreaterThan(0);
+    expect(Number.isFinite(distanceToNextRamp(r, ramp.end + 5))).toBe(true);
+  });
+
+  it('can still be set to finish after a number of laps', () => {
+    const cfg = { ...defaultConfig(), length: 1500, endless: false, laps: 2, seed: 2 };
+    const w = new World(cfg, new EgoDriver(new RuleSet()));
+    while (w.status === 'running') w.step(0.05);
+    expect(w.status).toBe('finished');
+    expect(w.ego.s).toBeGreaterThan(2 * 1500 - 25);
   });
 });
 

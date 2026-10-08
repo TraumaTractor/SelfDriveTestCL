@@ -2,6 +2,7 @@ import { speedLimitAt } from '../sim/road';
 import type { Decision, Driver, Indicator, Vehicle } from '../sim/vehicle';
 import type { World } from '../sim/world';
 import { Ctx, Draft, type MergeCheck } from './context';
+import { DecisionLog } from './decisions';
 import { RuleSet, runStack } from './rules';
 
 /** What the rule stack decided last tick - used for the on-screen explanation. */
@@ -18,8 +19,8 @@ export interface EgoReport {
   /** impact assessment of the lane change currently being considered */
   check: MergeCheck | null;
   /** everything proposed this tick (acceleration: most restrictive wins) */
-  accelProposals: { by: string; a: number }[];
-  laneProposals: { by: string; lane: number }[];
+  accelProposals: { by: string; a: number; why?: string }[];
+  laneProposals: { by: string; lane: number; why?: string }[];
   notes: { by: string; text: string }[];
   /** speed the car is trying to hold (m/s) and the posted limit */
   targetSpeed: number;
@@ -35,6 +36,10 @@ export class EgoDriver implements Driver {
     accelProposals: [], laneProposals: [], notes: [], targetSpeed: 0, limit: 0, signalRemaining: null,
   };
 
+  /** what the car decided and why (cheap, but switch off for headless batch runs) */
+  readonly log = new DecisionLog();
+  recordDecisions = true;
+
   private lastChangeEnd = -Infinity;
   private wasChanging = false;
   private pending: { target: number; since: number } | null = null;
@@ -42,7 +47,7 @@ export class EgoDriver implements Driver {
   /** The rule set is shared by reference so edits apply live while running. */
   constructor(public rules: RuleSet) {}
 
-  decide(world: World, me: Vehicle): Decision {
+  decide(world: World, me: Vehicle, dt = 0.05): Decision {
     if (this.wasChanging && !me.changing) this.lastChangeEnd = world.time;
     this.wasChanging = me.changing;
 
@@ -90,6 +95,7 @@ export class EgoDriver implements Driver {
       targetSpeed: ctx.cruise, limit,
       signalRemaining: this.pending && d.signalLead !== null ? Math.max(0, d.signalLead - (world.time - this.pending.since)) : null,
     };
+    if (this.recordDecisions) this.log.observe(world, me, d, ctx.cruise, limit, dt, d.signalLead);
     return { accel, wantLane, indicator };
   }
 }

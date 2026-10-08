@@ -40,7 +40,11 @@ export function summarise(world: World): RunSummary {
 
 /** Run one scenario to completion without any rendering. */
 export function runHeadless(cfg: WorldConfig, rules: RuleSet): RunSummary {
-  const world = new World(cfg, new EgoDriver(rules.clone()));
+  // batch runs need an end: an endless loop is scored over a single lap
+  const finite = cfg.endless ? { ...cfg, endless: false, laps: Math.max(1, cfg.laps) } : cfg;
+  const driver = new EgoDriver(rules.clone());
+  driver.recordDecisions = false;
+  const world = new World(finite, driver);
   while (world.status === 'running') world.step(SIM_DT);
   return summarise(world);
 }

@@ -69,7 +69,7 @@ export function resultsPanel(app: App): Panel {
       h('tr', {}, h('td', {}, label), h('td', {}, now.toFixed(digits), delta(now, bv, hb, digits)));
     batchOut.append(
       h('table', {},
-        h('tr', {}, h('th', {}, `Mean over ${b.runs.length} seeds`), h('th', {}, base ? 'vs baseline' : '')),
+        h('tr', {}, h('th', {}, `Mean over ${b.runs.length} seeds (${app.cfg.endless ? 'one lap each' : app.cfg.laps + ' lap(s) each'})`), h('th', {}, base ? 'vs baseline' : '')),
         row('Overall score', b.mean.overall, base?.mean.overall, true),
         row('Safety', b.mean.safety, base?.mean.safety, true),
         row('Comfort', b.mean.comfort, base?.mean.comfort, true),

@@ -1,4 +1,5 @@
 import type { ParamDef } from '../common';
+import type { PersonalityId } from '../drivers/personality';
 import { mergeImpact, type MergeImpact } from '../sim/impact';
 import type { Indicator, Vehicle } from '../sim/vehicle';
 import type { World } from '../sim/world';
@@ -43,6 +44,13 @@ export class Ctx {
   ) {
     this.limit = limit;
     this.cruise = limit * this.param('keep-speed', 'speedFactor', 1);
+  }
+
+  /** Human name for a vehicle, e.g. "Great driver" or "wreck". */
+  name(v: Vehicle): string {
+    if (v.crashed) return 'wreck';
+    const p = this.world.cfg.personalities[v.label as PersonalityId];
+    return p ? `${p.name} driver` : v.label;
   }
 
   get lane(): number {
@@ -117,8 +125,8 @@ export class Draft {
   /** the last lane-change impact assessment, for display */
   check: MergeCheck | null = null;
   /** everything that was proposed or observed this tick, so the car's reasoning can be shown */
-  accelProposals: { by: string; a: number }[] = [];
-  laneProposals: { by: string; lane: number }[] = [];
+  accelProposals: { by: string; a: number; why?: string }[] = [];
+  laneProposals: { by: string; lane: number; why?: string }[] = [];
   notes: { by: string; text: string }[] = [];
 
   /** A rule's observation about why it is (not) acting - purely for explanation. */
@@ -127,8 +135,8 @@ export class Draft {
   }
 
   /** Accel proposals are resolved most-restrictive-wins. */
-  proposeAccel(by: string, a: number, emergency = false): void {
-    this.accelProposals.push({ by, a });
+  proposeAccel(by: string, a: number, emergency = false, why?: string): void {
+    this.accelProposals.push({ by, a, why });
     if (a < this.accel) {
       this.accel = a;
       this.accelBy = by;
@@ -137,8 +145,8 @@ export class Draft {
   }
 
   /** Lane proposals are resolved by list order: the first rule to propose wins. */
-  proposeLane(by: string, lane: number): void {
-    this.laneProposals.push({ by, lane });
+  proposeLane(by: string, lane: number, why?: string): void {
+    this.laneProposals.push({ by, lane, why });
     if (this.lane === null && this.vetoBy === null) {
       this.lane = lane;
       this.laneBy = by;

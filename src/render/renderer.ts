@@ -1,7 +1,7 @@
 import { MS_TO_KMH } from '../common';
 import type { EgoReport } from '../ego/egoDriver';
 import { RULE_BY_ID } from '../ego/rules';
-import { rampAt, speedLimitAt } from '../sim/road';
+import { rampAt, rampInstances, speedLimitAt, wrapS, zoneInstances } from '../sim/road';
 import type { Vehicle } from '../sim/vehicle';
 import type { World } from '../sim/world';
 
@@ -74,7 +74,7 @@ export class Renderer {
 
     // ramps (acceleration lanes) with tapers
     const rampY = yOf(-1);
-    for (const r of world.road.ramps) {
+    for (const { ramp: r } of rampInstances(world.road, sOf(0) - 60, sOf(this.w) + 60)) {
       const x0 = xOf(r.start), x1 = xOf(r.end);
       if (x1 < -50 || x0 > this.w + 50) continue;
       const rampH = lw * sy;
@@ -119,7 +119,7 @@ export class Renderer {
     ctx.beginPath();
     const edgeY = yOf(0) - lw * sy / 2;
     let x = 0;
-    const rampsSorted = [...world.road.ramps].sort((a, b) => a.start - b.start);
+    const rampsSorted = rampInstances(world.road, sOf(0) - 60, sOf(this.w) + 60).map((i) => i.ramp).sort((a, b) => a.start - b.start);
     for (const r of rampsSorted) {
       const x0 = xOf(r.start), x1 = xOf(r.end);
       if (x0 > x) { ctx.moveTo(x, edgeY); ctx.lineTo(Math.min(x0, this.w), edgeY); }
@@ -129,7 +129,7 @@ export class Renderer {
     ctx.stroke();
 
     // speed limit signs
-    for (const z of world.road.zones) {
+    for (const z of zoneInstances(world.road, sOf(0), sOf(this.w))) {
       const px = xOf(z.start);
       if (px < -40 || px > this.w + 40) continue;
       this.sign(px, bot + 16, Math.round(z.limit * MS_TO_KMH / 10) * 10);
@@ -401,6 +401,38 @@ export class Renderer {
     return t + '…';
   }
 
+  /** A little ring showing the whole loop: speed zones, on-ramps and where the ego is. */
+  private loopRing(world: World, cx: number, cy: number, r: number): void {
+    const { ctx } = this;
+    const L = world.road.length;
+    const ang = (s: number) => (s / L) * Math.PI * 2 - Math.PI / 2;
+    ctx.fillStyle = 'rgba(10,14,20,0.7)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 4;
+    for (const z of world.road.zones) {
+      ctx.strokeStyle = z.limit > 30 ? '#4b5563' : z.limit > 25 ? '#a37a1f' : '#a33a4a';
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, ang(z.start), ang(z.end));
+      ctx.stroke();
+    }
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#ffb000';
+    for (const rp of world.road.ramps) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 5, ang(rp.start), ang(rp.end));
+      ctx.stroke();
+    }
+    const a = ang(wrapS(world.road, world.ego.s));
+    ctx.fillStyle = '#35e0ff';
+    ctx.beginPath();
+    ctx.arc(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    this.text(String(world.lap + 1), cx, cy + 4, '#ffffff', 11, 'center');
+    this.text('LAP', cx, cy - 9, '#8d94a0', 8, 'center');
+  }
+
   private hud(world: World, o: RenderOptions): void {
     const { ctx } = this;
     const ego = world.ego;
@@ -412,7 +444,7 @@ export class Renderer {
     this.text(`${(ego.v * MS_TO_KMH).toFixed(0)}`, 22, 52, '#ffffff', 34);
     this.text('km/h', 88, 52, '#8d94a0', 12);
     this.text(`limit ${(limit * MS_TO_KMH).toFixed(0)}`, 22, 68, ego.v > limit * 1.02 ? '#ff9340' : '#8d94a0', 11);
-    this.text(`lane ${ego.targetLane + 1}/${world.road.lanes}${rampAt(world.road, ego.s) ? ' · ramp zone' : ''}`, 100, 68, '#8d94a0', 11);
+    this.text(`lane ${ego.targetLane + 1}/${world.road.lanes}${rampAt(world.road, ego.s) ? ' · ramp' : ''} · lap ${world.lap + 1}${world.cfg.endless ? '' : '/' + Math.max(1, world.cfg.laps)}`, 100, 68, '#8d94a0', 11);
 
     let hudBottom = 84;
     const r = o.report;
@@ -432,20 +464,24 @@ export class Renderer {
       this.text('nothing ahead in range', 20, hudBottom + 42, '#8d94a0', 12);
     }
 
-    // progress strip
+    // progress along the current lap
     const stripY = this.h - 14, x0 = 12, x1 = this.w - 12;
+    const L = world.road.length;
+    const lapPos = wrapS(world.road, ego.s);
     ctx.fillStyle = '#10141a';
     ctx.fillRect(x0, stripY, x1 - x0, 6);
-    const px = (s: number) => x0 + (s / world.road.length) * (x1 - x0);
+    const px = (s: number) => x0 + (s / L) * (x1 - x0);
     for (const rp of world.road.ramps) {
       ctx.fillStyle = '#d4a20f';
       ctx.fillRect(px(rp.start), stripY - 3, Math.max(2, px(rp.end) - px(rp.start)), 3);
     }
     ctx.fillStyle = '#35e0ff';
-    ctx.fillRect(x0, stripY, px(ego.s) - x0, 6);
+    ctx.fillRect(x0, stripY, px(lapPos) - x0, 6);
     ctx.beginPath();
-    ctx.arc(px(ego.s), stripY + 3, 5, 0, Math.PI * 2);
+    ctx.arc(px(lapPos), stripY + 3, 5, 0, Math.PI * 2);
     ctx.fill();
+
+    this.loopRing(world, this.w - 44, this.h - 70, 26);
 
     if (world.status !== 'running') {
       const label = world.status === 'finished' ? 'FINISHED' : world.status === 'crashed' ? 'CRASHED' : 'TIMED OUT';
