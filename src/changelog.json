@@ -1,5 +1,18 @@
 [
   {
+    "version": "0.10.0",
+    "title": "Weather, road hazards, replay and sound",
+    "items": [
+      "Weather: rain, fog, snow & ice, or a variable mix (Traffic tab). Grip, visibility and sensible speeds change; careful drivers slow down, reckless ones barely notice. New \"Adapt to weather\" rule for your car.",
+      "Road hazards: breakdowns with hazard lights, debris and roadworks that close a lane. Traffic merges around them, and a new \"Avoid obstacles\" rule lets your car do the same.",
+      "Replay: scrub back through the last 1, 3 or 10 minutes under the stage, step frame by frame, slow it down, and click an event marker (or \"▶ Replay\" in Decisions/Results) to jump to just before it. Keys: ← → step, L live.",
+      "Auto-pause: the run can pause on a near miss, collision, hard brake, emergency brake or cut-off, with a one-click \"Replay last 5 s\". Choose which in Settings.",
+      "Click any vehicle to inspect it: type, driver style, speed, traits, and a Follow button to put the camera on it.",
+      "Driver legend on the stage: what each colour and shape means, with live counts. Hide it in Settings.",
+      "Sound cues (off by default, 🔊 in the header): indicator ticking, near-miss and brake warnings, collisions, horn, hazard chime and rain ambience."
+    ]
+  },
+  {
     "version": "0.9.0",
     "title": "Settings, light & dark mode, units and new vehicles",
     "items": [

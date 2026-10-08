@@ -15,6 +15,8 @@ export interface App {
   /** rules changed (persist + flag results as stale) */
   rulesChanged(): void;
   setRules(rules: RuleSet): void;
+  /** open the replay a few seconds before sim time t; false if that is no longer in the buffer */
+  replayTo(t: number): boolean;
 }
 
 export interface Panel {

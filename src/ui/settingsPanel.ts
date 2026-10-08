@@ -1,5 +1,5 @@
-import { getSettings, updateSettings } from '../settings';
-import { h, segmented } from './dom';
+import { getSettings, updateSettings, type AutoPause, type SoundSettings } from '../settings';
+import { h, segmented, toggle } from './dom';
 import { updateHint } from './updateHints';
 import { showWhatsNewNow } from './whatsNew';
 
@@ -76,6 +76,23 @@ export function showSettings(version: string): void {
         segmented({ name: 'theme', options: [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], value: getSettings().theme, onChange: (theme) => updateSettings({ theme }) })),
       h('div', { class: 'set-row' }, h('span', {}, 'Units', h('small', {}, 'km/h and metres, or mph and feet')),
         segmented({ name: 'units', options: [['metric', 'Metric'], ['imperial', 'Imperial']], value: getSettings().units, onChange: (units) => updateSettings({ units }) }))),
+    h('section', { class: 'wn' },
+      h('h3', {}, 'Auto-pause'),
+      h('p', { class: 'note' }, 'Pause the run the moment one of these happens, so you can look at it or replay the last few seconds.'),
+      ...([['nearmiss', 'Near miss'], ['collision', 'Collision'], ['hardbrake', 'Hard brake'], ['emergency', 'Emergency brake (ego)'], ['cutoff', 'Cut-off']] as [keyof AutoPause, string][])
+        .map(([k, label]) => toggle({ label, value: getSettings().autoPause[k], onChange: (v) => updateSettings({ autoPause: { ...getSettings().autoPause, [k]: v } }) }))),
+    h('section', { class: 'wn' },
+      h('h3', {}, 'Replay & display'),
+      h('div', { class: 'set-row' }, h('span', {}, 'Replay buffer', h('small', {}, 'How much of the run you can scrub back through')),
+        segmented({ name: 'replay', options: [['60', '1 min'], ['180', '3 min'], ['600', '10 min']], value: String(getSettings().replaySeconds), onChange: (v) => updateSettings({ replaySeconds: Number(v) }) })),
+      toggle({ label: 'Show driver legend', value: getSettings().legend, onChange: (legend) => updateSettings({ legend }) })),
+    h('section', { class: 'wn' },
+      h('h3', {}, 'Sound cues'),
+      toggle({ label: 'Sound on', value: getSettings().sound.on, onChange: (on) => updateSettings({ sound: { ...getSettings().sound, on } }) }),
+      h('div', { class: 'set-row' }, h('span', {}, 'Volume'),
+        h('input', { type: 'range', min: '0', max: '1', step: '0.05', value: String(getSettings().sound.volume), on: { input: (e) => updateSettings({ sound: { ...getSettings().sound, volume: Number((e.target as HTMLInputElement).value) } }) } })),
+      ...([['indicator', 'Indicator ticking'], ['warnings', 'Near-miss / brake warnings'], ['collision', 'Collision'], ['horn', 'Horn when cut off'], ['lane', 'Lane-change whoosh'], ['hazard', 'Hazard ahead chime'], ['ambient', 'Rain / snow ambience']] as [keyof SoundSettings, string][])
+        .map(([k, label]) => toggle({ label, value: getSettings().sound[k] as boolean, onChange: (v) => updateSettings({ sound: { ...getSettings().sound, [k]: v } }) }))),
     h('section', { class: 'wn' },
       h('h3', {}, 'About'),
       h('div', { class: 'row' }, h('span', {}, `Self-Drive Test Bench v${version}`),

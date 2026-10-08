@@ -91,6 +91,8 @@ export type EventKind =
 export type Severity = 'good' | 'info' | 'warn' | 'bad';
 
 export interface SimEvent {
+  /** running count, so listeners can tell which events are new */
+  seq: number;
   t: number;
   kind: EventKind;
   severity: Severity;
@@ -133,6 +135,7 @@ export class World {
   /** lanes closed for roadworks, and everything hazardous that has been placed ahead of the ego */
   works: Works[] = [];
   hazards: HazardInfo[] = [];
+  eventSeq = 1;
   private hazardRng: Rng;
   private nextHazardS = Infinity;
   private nextHazardId = 1;
@@ -346,6 +349,18 @@ export class World {
       if (Math.abs(o.s - v.s) < (o.length + v.length) / 2 + 1.5) return true;
     }
     return false;
+  }
+
+  /** Replace the live state with a decoded replay frame. Only used by the replay viewer's own World. */
+  loadReplay(s: { time: number; lap: number; status: RunStatus; conditions: Conditions; works: Works[]; vehicles: Vehicle[]; ego: Vehicle }): void {
+    this.time = s.time;
+    this.lap = s.lap;
+    this.status = s.status;
+    this.conditions = s.conditions;
+    this.works = s.works;
+    this.vehicles = s.vehicles;
+    this.ego = s.ego;
+    this.rebuildIndex();
   }
 
   // ----------------------------------------------------------------------- hazards
@@ -615,7 +630,7 @@ export class World {
   }
 
   log(kind: EventKind, severity: Severity, text: string): void {
-    this.events.push({ t: this.time, kind, severity, text });
+    this.events.push({ seq: this.eventSeq++, t: this.time, kind, severity, text });
     if (this.events.length > 500) this.events.shift();
   }
 }

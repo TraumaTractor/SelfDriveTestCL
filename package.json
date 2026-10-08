@@ -1,7 +1,7 @@
 {
   "name": "self-drive-test-bench",
   "private": true,
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Visualise and tweak self-driving rules on a simulated motorway",
   "author": "Self-Drive Test Bench",
   "main": "electron/main.cjs",

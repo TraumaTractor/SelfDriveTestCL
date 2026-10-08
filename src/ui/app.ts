@@ -6,7 +6,12 @@ import { SIM_DT } from '../sim/headless';
 import { World, defaultConfig, type WorldConfig } from '../sim/world';
 import { h } from './dom';
 import { decisionsPanel } from './decisionsPanel';
-import { loadSettings } from '../settings';
+import { loadSettings, getSettings, onSettingsChange, updateSettings } from '../settings';
+import { Recorder, Replayer, snapshotMetrics, type MetricSnap } from '../replay';
+import { Sound } from '../audio';
+import { replayBar } from './replayBar';
+import { createInspector } from './inspector';
+import { createLegend } from './legend';
 import { showSettings } from './settingsPanel';
 import { maybeShowWhatsNew, showWhatsNewNow } from './whatsNew';
 import { resultsPanel, setStale } from './resultsPanel';
@@ -53,6 +58,7 @@ export function startApp(root: HTMLElement): void {
       this.driver = new EgoDriver(this.rules);
       this.world = new World(this.cfg, this.driver);
       acc = 0;
+      resetReplay();
       setStale(results, false);
       save(this);
       status();
@@ -64,6 +70,15 @@ export function startApp(root: HTMLElement): void {
     rulesChanged() {
       save(this);
       if (this.world.time > 1 || this.world.status !== 'running') setStale(results, true);
+    },
+    replayTo(t) {
+      if (!recorder.length) return false;
+      if (t < recorder.start) {
+        if (t < recorder.start - 5) { showToast('That moment is older than the replay buffer (see Settings → Replay buffer).'); return false; }
+        t = recorder.start;
+      }
+      enterReplay(Math.max(recorder.start, t - 3));
+      return true;
     },
     setRules(r) {
       this.rules = r;
@@ -80,7 +95,15 @@ export function startApp(root: HTMLElement): void {
   const dashcam = new Dashcam(dashCanvas);
   type View = 'top' | 'pip' | 'dash';
   let view: View = 'pip';
-  const stage = h('div', { class: 'stage', 'data-view': view }, canvas, dashCanvas);
+  const toastEl = h('div', { class: 'toast' });
+  toastEl.hidden = true;
+  const inspector = createInspector({
+    onFollow: (id) => { focusId = id; },
+    onClose: () => { /* selection cleared by hide() */ },
+    isFollowing: (id) => focusId === id,
+  });
+  const legend = createLegend();
+  const stage = h('div', { class: 'stage', 'data-view': view }, canvas, dashCanvas, legend.el, inspector.el, toastEl);
   const setView = (v: View) => {
     view = v;
     stage.setAttribute('data-view', v);
@@ -98,10 +121,114 @@ export function startApp(root: HTMLElement): void {
   let sensors = true;
   let labels = false;
   let acc = 0;
+  let focusId: number | null = null;
+  const sound = new Sound();
+  sound.configure(getSettings().sound);
+
+  // ----- recording, replay, events
+  const recorder = new Recorder(getSettings().replaySeconds);
+  let replayer = new Replayer(app.world);
+  let mode: 'live' | 'replay' = 'live';
+  let replayT = 0;
+  let replayPlaying = false;
+  let replaySpeed = 1;
+  let lastSeq = app.world.eventSeq;
+  let lastEmergencies = 0;
+  let toastTimer = 0;
+
+  function showToast(text: string, ...actions: [string, () => void][]): void {
+    toastEl.replaceChildren(h('span', {}, text), ...actions.map(([label, fn]) => h('button', { class: 'small', on: { click: () => { hideToast(); fn(); } } }, label)));
+    toastEl.hidden = false;
+    clearTimeout(toastTimer);
+    if (!actions.length) toastTimer = window.setTimeout(hideToast, 4000);
+  }
+  function hideToast(): void { toastEl.hidden = true; clearTimeout(toastTimer); }
+
+  function resetReplay(): void {
+    recorder.seconds = getSettings().replaySeconds;
+    recorder.clear();
+    replayer = new Replayer(app.world);
+    mode = 'live';
+    replayPlaying = false;
+    lastSeq = app.world.eventSeq;
+    lastEmergencies = 0;
+    focusId = null;
+    inspector.hide();
+    hideToast();
+    recorder.record(app.world, app.driver.report, true);
+  }
+  function enterReplay(t: number): void {
+    if (!recorder.length) return;
+    hideToast();
+    mode = 'replay';
+    replayT = Math.max(recorder.start, Math.min(recorder.end, t));
+    replayPlaying = false;
+    status();
+    refreshUi();
+  }
+  function goLive(): void {
+    mode = 'live';
+    replayPlaying = false;
+    status();
+    refreshUi();
+  }
+  const AUTO_LABEL: Record<string, string> = { nearmiss: 'Near miss', collision: 'Collision', hardbrake: 'Hard brake', cutoff: 'Cut-off' };
+  const CUES: Record<string, Parameters<Sound['play']>[0]> = { nearmiss: 'nearmiss', hardbrake: 'hardbrake', cutoff: 'horn', collision: 'collision', hazard: 'hazard', lanechange: 'lane' };
+
+  /** Advance the live sim one tick, record it, and react to anything that just happened. Returns true if it auto-paused. */
+  function stepLive(): boolean {
+    const w = app.world;
+    w.step(SIM_DT);
+    recorder.record(w, app.driver.report, w.status !== 'running');
+    sound.update(w.time, w.ego.indicator !== 0);
+    let pauseFor: string | null = null;
+    for (const e of w.events) {
+      if (e.seq < lastSeq) continue;
+      lastSeq = e.seq + 1;
+      const cue = CUES[e.kind];
+      if (cue) sound.play(cue);
+      const ap = getSettings().autoPause as unknown as Record<string, boolean>;
+      if (!pauseFor && ap[e.kind] && AUTO_LABEL[e.kind]) pauseFor = `${AUTO_LABEL[e.kind]}: ${e.text}`;
+    }
+    const em = app.driver.log.counts.emergencies;
+    if (em > lastEmergencies) {
+      lastEmergencies = em;
+      sound.play('emergency');
+      if (!pauseFor && getSettings().autoPause.emergency) pauseFor = 'Emergency brake';
+    }
+    if (pauseFor) {
+      playing = false;
+      status();
+      sound.play('pause');
+      const t = w.time;
+      showToast(`⏸ ${pauseFor}`, ['Replay last 5 s', () => app.replayTo(Math.max(recorder.start, t - 2))], ['Continue', () => { playing = true; status(); }]);
+      return true;
+    }
+    return false;
+  }
+
+  const bar = replayBar({
+    onSeek: (t) => { if (t >= recorder.end - 0.05) goLive(); else enterReplay(t); },
+    onPlayToggle: () => togglePlayback(),
+    onLive: () => goLive(),
+    onStep: (n) => { if (mode === 'live') enterReplay(recorder.stepFrom(recorder.end, n)); else enterReplay(recorder.stepFrom(replayT, n)); },
+    onBack: (s) => enterReplay((mode === 'live' ? recorder.end : replayT) - s),
+    onSpeed: (x) => { replaySpeed = x; },
+  });
 
   const playBtn = h('button', { class: 'primary', on: { click: () => toggle() } }, '⏸ Pause');
-  const toggle = () => { playing = !playing; status(); };
-  const status = () => { playBtn.textContent = playing ? '⏸ Pause' : '▶ Play'; };
+  const toggle = () => {
+    if (mode === 'replay') { togglePlayback(); return; }
+    playing = !playing;
+    status();
+  };
+  function togglePlayback(): void {
+    if (mode === 'live') { enterReplay(recorder.end - 5); replayPlaying = true; status(); return; }
+    if (!replayPlaying && replayT >= recorder.end - 0.05) replayT = recorder.start;
+    replayPlaying = !replayPlaying;
+    status();
+  }
+  const status = () => { playBtn.textContent = mode === 'replay' ? (replayPlaying ? '⏸ Pause replay' : '▶ Play replay') : playing ? '⏸ Pause' : '▶ Play'; };
   const banner = h('div', { class: 'banner' }, 'Traffic/road settings changed. ',
     h('button', { class: 'small', on: { click: () => { banner.hidden = true; app.restart(); } } }, 'Restart to apply'));
   banner.hidden = true;
@@ -117,10 +244,22 @@ export function startApp(root: HTMLElement): void {
     return h('label', { class: 'chk' }, i, label);
   };
 
+  const soundBtn = h('button', { title: 'Sound cues on / off', on: { click: () => updateSettings({ sound: { ...getSettings().sound, on: !getSettings().sound.on } }) } });
+  const applySettings = () => {
+    const s = getSettings();
+    soundBtn.textContent = s.sound.on ? '🔊' : '🔇';
+    sound.configure(s.sound);
+    legend.el.hidden = !s.legend;
+    recorder.seconds = s.replaySeconds;
+    if (!s.sound.on) sound.weather(null);
+  };
+  onSettingsChange(applySettings);
+  applySettings();
+
   const header = h('header', { class: 'bar' },
     h('h1', {}, 'SELF-DRIVE ', h('span', {}, 'TEST BENCH')),
     playBtn,
-    h('button', { title: 'Advance one tick', on: { click: () => { playing = false; status(); app.world.step(SIM_DT); } } }, '⏭ Step'),
+    h('button', { title: 'Advance one tick', on: { click: () => { playing = false; status(); if (mode === 'replay') goLive(); stepLive(); } } }, '⏭ Step'),
     h('button', { on: { click: () => app.restart() } }, '↻ Restart'),
     h('label', { class: 'chk' }, 'View', viewSel),
     h('label', { class: 'chk' }, 'Speed', speedSel),
@@ -128,22 +267,23 @@ export function startApp(root: HTMLElement): void {
     chk('Sensors', sensors, (v) => (sensors = v)),
     chk('Driver labels', labels, (v) => (labels = v)),
     h('span', { class: 'spacer' }),
-    h('button', { title: 'Settings: theme, units, updates', on: { click: () => showSettings(__APP_VERSION__) } }, '⚙ Settings'),
+    soundBtn,
+    h('button', { title: 'Settings: theme, units, sound, auto-pause, updates', on: { click: () => showSettings(__APP_VERSION__) } }, '⚙ Settings'),
     h('span', { id: 'seedlabel', class: 'chk' }, ''));
 
   const tiles = h('div', { class: 'tiles' });
-  const tileDefs: [string, (w: World) => string, (w: World) => string][] = [
-    ['Lap', (w) => `${w.lap + 1}${w.cfg.endless ? '' : '/' + Math.max(1, w.cfg.laps)}`, () => ''],
-    ['Time', (w) => `${w.time.toFixed(0)} s`, () => ''],
-    ['Distance', (w) => U.longDist(w.metrics.distance, 2), () => ''],
-    ['Avg speed', (w) => U.speed(w.metrics.avgSpeed), () => ''],
-    ['Near misses', (w) => String(w.metrics.nearMisses), (w) => (w.metrics.nearMisses ? 'bad' : 'good')],
-    ['Hard brakes', (w) => String(w.metrics.hardBrakes), (w) => (w.metrics.hardBrakes ? 'warn' : 'good')],
-    ['Lane changes', (w) => String(w.metrics.laneChanges), () => ''],
-    ['No signal', (w) => String(w.metrics.unsignalledChanges), (w) => (w.metrics.unsignalledChanges ? 'warn' : 'good')],
-    ['Cut-offs', (w) => String(w.metrics.cutOffs), (w) => (w.metrics.cutOffs ? 'bad' : 'good')],
-    ['Collisions', (w) => String(w.metrics.collisions), (w) => (w.metrics.collisions ? 'bad' : 'good')],
-    ['Score', (w) => w.metrics.scores(w.status === 'crashed').overall.toFixed(0), () => ''],
+  const tileDefs: [string, (m: MetricSnap) => string, (m: MetricSnap) => string][] = [
+    ['Lap', (m) => `${m.lap + 1}${app.world.cfg.endless ? '' : '/' + Math.max(1, app.world.cfg.laps)}`, () => ''],
+    ['Time', (m) => `${m.time.toFixed(0)} s`, () => ''],
+    ['Distance', (m) => U.longDist(m.distance, 2), () => ''],
+    ['Avg speed', (m) => U.speed(m.avgSpeed), () => ''],
+    ['Near misses', (m) => String(m.nearMisses), (m) => (m.nearMisses ? 'bad' : 'good')],
+    ['Hard brakes', (m) => String(m.hardBrakes), (m) => (m.hardBrakes ? 'warn' : 'good')],
+    ['Lane changes', (m) => String(m.laneChanges), () => ''],
+    ['No signal', (m) => String(m.unsignalled), (m) => (m.unsignalled ? 'warn' : 'good')],
+    ['Cut-offs', (m) => String(m.cutOffs), (m) => (m.cutOffs ? 'bad' : 'good')],
+    ['Collisions', (m) => String(m.collisions), (m) => (m.collisions ? 'bad' : 'good')],
+    ['Score', (m) => m.score.toFixed(0), () => ''],
   ];
   const tileEls = tileDefs.map(([label]) => {
     const b = h('b', {});
@@ -165,10 +305,15 @@ export function startApp(root: HTMLElement): void {
   showTab(0);
 
   root.replaceChildren(header, h('main', {},
-    h('div', { class: 'left' }, stage, tiles),
+    h('div', { class: 'left' }, stage, bar.el, tiles),
     h('aside', {}, tabBar, pane)),
     h('div', { class: 'version', title: "What's new", on: { click: () => showWhatsNewNow(__APP_VERSION__) } }, `v${__APP_VERSION__}`));
 
+  canvas.addEventListener('click', (e) => {
+    const r = canvas.getBoundingClientRect();
+    const v = renderer.pick(e.clientX - r.left, e.clientY - r.top);
+    if (v) { inspector.show(v.id); inspector.refresh(shownWorld()); } else { inspector.hide(); }
+  });
   new ResizeObserver(() => renderer.resize()).observe(canvas);
   new ResizeObserver(() => dashcam.resize()).observe(dashCanvas);
   renderer.resize();
@@ -177,32 +322,57 @@ export function startApp(root: HTMLElement): void {
     if ((e.target as HTMLElement).matches('input, textarea, select')) return;
     if (e.code === 'Space') { e.preventDefault(); toggle(); }
     if (e.key === 'r') app.restart();
+    if (e.key === 'l' || e.key === 'L') goLive();
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      const n = (e.key === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 10 : 1);
+      if (mode === 'live') { if (n < 0) enterReplay(recorder.stepFrom(recorder.end, n)); } else enterReplay(recorder.stepFrom(replayT, n));
+    }
+    if (e.key === 'Escape') { inspector.hide(); focusId = null; }
   });
 
   // -------------------------------------------------------------- loop
+  const shownWorld = () => (mode === 'replay' ? replayer.world : app.world);
   let last = performance.now();
   let uiTimer = 0;
   const frame = (now: number) => {
     const dtReal = Math.min(0.1, (now - last) / 1000);
     last = now;
-    if (playing) {
+    let alpha = 0;
+    let report = app.driver.report;
+    if (mode === 'replay') {
+      if (replayPlaying) {
+        replayT += dtReal * replaySpeed;
+        if (replayT >= recorder.end) { replayT = recorder.end; replayPlaying = false; status(); }
+      }
+      const smp = recorder.sample(replayT);
+      if (smp) {
+        alpha = replayer.show(smp.a, smp.b, smp.alpha);
+        report = smp.b.report ?? report;
+      }
+    } else if (playing) {
       acc += dtReal * speed;
       let steps = 0;
       while (acc >= SIM_DT && steps < 40) {
-        app.world.step(SIM_DT);
+        const paused = stepLive();
         acc -= SIM_DT;
         steps++;
+        if (paused || app.world.status !== 'running') break;
       }
       if (steps >= 40) acc = 0;
       if (app.world.status !== 'running') { playing = false; status(); }
+      alpha = Math.min(1, acc / SIM_DT);
     }
-    const alpha = Math.min(1, acc / SIM_DT);
-    if (view !== 'dash') renderer.draw(app.world, { zoom, showSensors: sensors, showLabels: labels, alpha, report: app.driver.report, sensorRange: app.rules.get('keep-distance')?.params.range ?? 150 });
-    if (view !== 'top') dashcam.draw(app.world, { alpha, report: app.driver.report });
+    const w = shownWorld();
+    const selectedId = inspector.id;
+    if (view !== 'dash') renderer.draw(w, { zoom, showSensors: sensors && mode === 'live', showLabels: labels, alpha, report, sensorRange: app.rules.get('keep-distance')?.params.range ?? 150, focusId, selectedId });
+    if (view !== 'top') dashcam.draw(w, { alpha, report });
+    if (mode === 'live') sound.weather(playing ? w.conditions : null); else sound.weather(null);
 
     uiTimer += dtReal;
-    if (uiTimer > 0.2) {
-      uiTimer = 0;
+    if (uiTimer > 0.2 || mode === 'replay') {
+      uiTimer = mode === 'replay' ? uiTimer : 0;
+      if (mode === 'replay' && uiTimer > 0.2) uiTimer = 0;
       refreshUi();
     }
     requestAnimationFrame(frame);
@@ -210,11 +380,15 @@ export function startApp(root: HTMLElement): void {
 
   function refreshUi(): void {
     const w = app.world;
+    const snap = mode === 'replay' ? (recorder.sample(replayT)?.b.m ?? snapshotMetrics(w)) : snapshotMetrics(w);
     tileDefs.forEach(([, val, cls], i) => {
-      tileEls[i].b.textContent = val(w);
-      tileEls[i].t.className = `tile ${cls(w)}`;
+      tileEls[i].b.textContent = val(snap);
+      tileEls[i].t.className = `tile ${cls(snap)}`;
     });
     (document.getElementById('seedlabel') as HTMLElement).textContent = `seed ${w.cfg.seed} · ${w.vehicles.length} vehicles · ${w.road.lanes} lanes`;
+    bar.update({ live: mode === 'live', playing: replayPlaying, t: replayT, start: recorder.start, end: recorder.end, events: w.events });
+    legend.refresh(shownWorld());
+    inspector.refresh(shownWorld());
     rulesTab.refresh(app);
     decisionsTab.refresh(app);
     results.refresh(app);
@@ -222,6 +396,7 @@ export function startApp(root: HTMLElement): void {
 
   // Expose for debugging / automated checks.
   (window as unknown as { __app: App }).__app = app;
+  resetReplay();
   refreshUi();
   requestAnimationFrame(frame);
   maybeShowWhatsNew(__APP_VERSION__);

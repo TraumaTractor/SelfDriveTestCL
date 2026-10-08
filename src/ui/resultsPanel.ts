@@ -133,7 +133,7 @@ export function resultsPanel(app: App): Panel {
       const n = w.events.length;
       if (n !== logCount) {
         logCount = n;
-        log.replaceChildren(...w.events.slice(-80).reverse().map((e) => h('div', { class: e.severity }, `${e.t.toFixed(1).padStart(6)}s  ${e.text}`)));
+        log.replaceChildren(...w.events.slice(-80).reverse().map((e) => h('div', { class: `${e.severity} ev-link`, title: 'Replay this moment', on: { click: () => a.replayTo(e.t) } }, `${e.t.toFixed(1).padStart(6)}s  ${e.text}`)));
       }
     },
   };

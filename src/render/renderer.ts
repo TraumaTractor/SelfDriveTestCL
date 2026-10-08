@@ -18,6 +18,10 @@ export interface RenderOptions {
   report: EgoReport | null;
   /** forward sensor range in metres */
   sensorRange: number;
+  /** camera follows this vehicle instead of the ego (null = ego) */
+  focusId?: number | null;
+  /** highlighted vehicle (the one being inspected) */
+  selectedId?: number | null;
 }
 
 const Y_STRETCH = 1.8;
@@ -33,6 +37,7 @@ export class Renderer {
   private h = 0;
   private dpr = 1;
   private pal = PALETTE.dark;
+  private hits: { v: Vehicle; x0: number; y0: number; x1: number; y1: number }[] = [];
   private smoothA = new Map<number, number>();
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -57,7 +62,9 @@ export class Renderer {
     const lanes = world.road.lanes;
 
     const ego = world.ego;
-    const egoS = lerp(ego.prevS, ego.s, o.alpha);
+    const focus = (o.focusId != null ? world.vehicles.find((v) => v.id === o.focusId) : undefined) ?? ego;
+    const egoS = lerp(focus.prevS, focus.s, o.alpha);
+    this.hits = [];
     const camS = egoS + this.w / sx * 0.18; // ego sits left of centre
     const sOf = (px: number) => camS + (px - this.w / 2) / sx;
     const xOf = (s: number) => (s - camS) * sx + this.w / 2;
@@ -158,6 +165,15 @@ export class Renderer {
       if (px < -60 || px > this.w + 60) continue;
       ctx.globalAlpha = fogAlpha(vs - egoS, world.conditions);
       this.vehicle(v, px, yOf(vy), sx, lw * sy, world.time);
+      const hw = Math.max(v.length * sx, 16) / 2 + 3, hh = Math.max(lw * sy * 0.34, 9);
+      this.hits.push({ v, x0: px - hw, y0: yOf(vy) - hh, x1: px + hw, y1: yOf(vy) + hh });
+      if (o.selectedId === v.id) {
+        ctx.strokeStyle = '#ffd24a';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 3]);
+        ctx.strokeRect(px - hw, yOf(vy) - hh, hw * 2, hh * 2);
+        ctx.setLineDash([]);
+      }
       if (v.isStatic && v.hazard) this.triangle(px - v.length * sx / 2 - 22 * sx, yOf(vy), 9);
       ctx.globalAlpha = 1;
       if (o.showLabels && v !== ego && !v.crashed) {
@@ -170,6 +186,15 @@ export class Renderer {
     // ego overlays
     if (o.showSensors && !ego.crashed) this.sensors(world, o, xOf, yOf, sx, lw * sy);
     this.hud(world, o);
+  }
+
+  /** The vehicle drawn under canvas coordinates (x, y), if any - topmost first. */
+  pick(x: number, y: number): Vehicle | null {
+    for (let i = this.hits.length - 1; i >= 0; i--) {
+      const h = this.hits[i];
+      if (x >= h.x0 && x <= h.x1 && y >= h.y0 && y <= h.y1) return h.v;
+    }
+    return null;
   }
 
   // ------------------------------------------------------------- pieces
