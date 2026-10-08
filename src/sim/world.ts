@@ -6,13 +6,15 @@ import {
 } from '../drivers/personality';
 import { EgoMetrics } from './metrics';
 import { Rng } from './rng';
-import { generateRoad, speedLimitAt, type Road } from './road';
+import { generateRoad, lapOf, rampInstances, speedLimitAt, type Road } from './road';
 import { bumperGap, occupies, type Decision, type Driver, type Vehicle } from './vehicle';
 
 export interface WorldConfig {
   seed: number;
   lanes: number;
   length: number;
+  /** vary the posted speed limit along the road (off = constant 120 km/h) */
+  variableLimits: boolean;
   /** vehicles per km per lane */
   density: number;
   /** vehicles per minute joining from each on-ramp */
@@ -21,7 +23,10 @@ export interface WorldConfig {
   mix: Record<PersonalityId, number>;
   personalities: Record<PersonalityId, Personality>;
   egoStart: number;
-  /** abort the run after this many simulated seconds */
+  /** the road loops forever (laps repeat the same layout); otherwise the run ends after `laps` laps */
+  endless: boolean;
+  laps: number;
+  /** abort a finite run after this many simulated seconds per lap */
   maxTime: number;
 }
 
@@ -30,11 +35,14 @@ export function defaultConfig(): WorldConfig {
     seed: 1,
     lanes: 3,
     length: 6000,
-    density: 14,
+    variableLimits: true,
+    density: 10,
     rampRate: 6,
     mix: { great: 3, average: 5, cautious: 2, aggressive: 2, reckless: 1 },
     personalities: clonePersonalities(),
     egoStart: 300,
+    endless: true,
+    laps: 1,
     maxTime: 600,
   };
 }
@@ -57,6 +65,15 @@ const WINDOW_BEHIND = 800;
 const WINDOW_AHEAD = 1500;
 const WRECK_LIFETIME = 15;
 
+/** Who tends to be in which lane: [slow lane, middle lanes, fastest lane]. */
+const LANE_AFFINITY: Record<PersonalityId, [number, number, number]> = {
+  great: [3, 0.6, 0.2],
+  average: [1.5, 1.2, 0.8],
+  cautious: [1.2, 1.3, 0.6],
+  aggressive: [0.5, 1, 2],
+  reckless: [0.3, 1, 2.5],
+};
+
 export class World {
   readonly cfg: WorldConfig;
   readonly road: Road;
@@ -69,6 +86,10 @@ export class World {
   events: SimEvent[] = [];
   trafficCollisions = 0;
   trafficUnsignalled = 0;
+  /** completed laps of the loop */
+  lap = 0;
+  /** distance at which a finite run ends */
+  readonly totalLength: number;
 
   private laneLists: Vehicle[][] = [];
   private nextId = 1;
@@ -81,8 +102,9 @@ export class World {
   constructor(cfg: WorldConfig, egoDriver: Driver) {
     this.cfg = cfg;
     this.rng = new Rng(cfg.seed);
-    this.road = generateRoad(this.rng, { lanes: cfg.lanes, length: cfg.length });
+    this.road = generateRoad(this.rng, { lanes: cfg.lanes, length: cfg.length, variableLimits: cfg.variableLimits });
     this.metrics = new EgoMetrics();
+    this.totalLength = cfg.endless ? Infinity : cfg.length * Math.max(1, cfg.laps);
 
     const egoLane = Math.min(1, cfg.lanes - 1);
     const ego = this.makeVehicle('ego', 'Ego', '#35e0ff', cfg.egoStart, egoLane, speedLimitAt(this.road, cfg.egoStart), egoDriver);
@@ -193,12 +215,18 @@ export class World {
     this.metrics.update(this, dt);
     this.cleanup();
 
+    const lap = lapOf(this.road, this.ego.s);
+    if (lap > this.lap) {
+      this.lap = lap;
+      this.log('info', 'good', `Lap ${lap} complete`);
+    }
+
     const ego = this.ego;
     if (ego.crashed) this.status = 'crashed';
-    else if (ego.s >= this.road.length - 20) {
+    else if (ego.s >= this.totalLength - 20) {
       this.status = 'finished';
       this.log('info', 'good', 'Reached the end of the motorway');
-    } else if (this.time >= this.cfg.maxTime) {
+    } else if (!this.cfg.endless && this.time >= this.cfg.maxTime * Math.max(1, this.cfg.laps)) {
       this.status = 'timeout';
       this.log('info', 'warn', 'Run timed out');
     }
@@ -233,7 +261,7 @@ export class World {
 
     // ramp end barrier
     if (v.onRamp && !v.changing) {
-      const ramp = this.road.ramps.find((r) => v.s >= r.start - 20 && v.s <= r.end + 20);
+      const ramp = rampInstances(this.road, v.s - 20, v.s + 20)[0]?.ramp;
       if (ramp && v.s > ramp.end - v.length / 2) {
         v.s = ramp.end - v.length / 2;
         v.v = 0;
@@ -316,7 +344,7 @@ export class World {
     this.vehicles = this.vehicles.filter((v) => {
       if (v === this.ego) return true;
       if (v.crashed && this.time - v.crashTime > WRECK_LIFETIME) return false;
-      return v.s > egoS - WINDOW_BEHIND && v.s < this.road.length + 50;
+      return v.s > egoS - WINDOW_BEHIND && v.s < egoS + WINDOW_AHEAD + 600 && v.s < this.totalLength + 50;
     });
   }
 
@@ -333,7 +361,7 @@ export class World {
       const s = this.ego.s - WINDOW_BEHIND + 20;
       if (s < 0) { this.nextRearSpawn[l] = 1; continue; }
       this.nextRearSpawn[l] = this.rng.exp(1 / Math.max(flow, 1e-3));
-      const id = this.rng.weighted(cfg.mix);
+      const id = this.pickPersonality(l);
       const p = cfg.personalities[id];
       const v0 = speedLimitAt(this.road, s) * p.speedFactor;
       const v = Math.min(v0, this.ego.v + this.rng.range(1, 8));
@@ -341,32 +369,42 @@ export class World {
     }
 
     // on-ramps (only while the ego is approaching, to save work)
-    this.road.ramps.forEach((ramp, i) => {
-      if (this.ego.s < ramp.start - 900 || this.ego.s > ramp.end) return;
+    for (const { ramp, index: i } of rampInstances(this.road, this.ego.s - 100, this.ego.s + 1000)) {
+      if (this.ego.s < ramp.start - 900 || this.ego.s > ramp.end) continue;
       this.nextRampSpawn[i] -= dt;
-      if (this.nextRampSpawn[i] > 0) return;
+      if (this.nextRampSpawn[i] > 0) continue;
       const busy = (this.laneLists[0] ?? []).some((e) => Math.abs(e.s - (ramp.start + 5)) < 28);
-      if (busy) { this.nextRampSpawn[i] = 1; return; }
+      if (busy) { this.nextRampSpawn[i] = 1; continue; }
       this.nextRampSpawn[i] = this.rng.exp(60 / Math.max(cfg.rampRate, 0.01));
       const id = this.rng.weighted(cfg.mix);
       const v = this.trySpawn(id, ramp.start + 5, -1, Math.min(22, speedLimitAt(this.road, ramp.start) * 0.8));
       if (v) v.onRamp = true;
-    });
+    }
+  }
+
+  /** Pick a driver type, biased by lane so good drivers start in the slow lane and bad ones in the fast lanes. */
+  private pickPersonality(lane: number): PersonalityId {
+    const k = lane <= 0 ? 0 : lane >= this.cfg.lanes - 1 ? 2 : 1;
+    const w = {} as Record<PersonalityId, number>;
+    for (const id of PERSONALITY_IDS) w[id] = this.cfg.mix[id] * LANE_AFFINITY[id][k];
+    return this.rng.weighted(w);
   }
 
   private seedUpTo(frontier: number): void {
     const { cfg } = this;
-    const target = Math.min(frontier, this.road.length);
+    const target = Math.min(frontier, this.totalLength);
     while (this.seedFront < target) {
       const blockStart = this.seedFront;
-      const blockEnd = Math.min(blockStart + 100, this.road.length);
+      const blockEnd = Math.min(blockStart + 100, this.totalLength);
       for (let l = 0; l < cfg.lanes; l++) {
-        const meanSpacing = 1000 / Math.max(cfg.density, 0.5);
+        // the slow lane is busier than the fast lane, as on a real motorway
+        const laneDensity = cfg.density * (l === 0 ? 1.2 : l === cfg.lanes - 1 ? 0.8 : 1.0);
+        const meanSpacing = 1000 / Math.max(laneDensity, 0.5);
         // everyone starts at a similar, safe lane speed so the initial state is collision-free
         const laneSpeedFactor = 0.78 + 0.09 * l;
         let s = blockStart + this.rng.exp(meanSpacing * 0.5) + 6;
         while (s < blockEnd) {
-          const id = this.rng.weighted(cfg.mix);
+          const id = this.pickPersonality(l);
           const p = cfg.personalities[id];
           const limit = speedLimitAt(this.road, s);
           const v = Math.min(limit * p.speedFactor, limit * laneSpeedFactor) * this.rng.range(0.95, 1.0);
@@ -377,7 +415,7 @@ export class World {
         }
       }
       this.seedFront = blockEnd;
-      if (blockEnd >= this.road.length) break;
+      if (blockEnd >= this.totalLength) break;
     }
   }
 

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b2431"/><stop offset="1" stop-color="#0b0f15"/></linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <!-- road in perspective -->
+  <polygon points="430,250 594,250 900,880 124,880" fill="#3a3e46"/>
+  <polygon points="430,250 594,250 606,250 130,880 118,880" fill="#e6e6e6" opacity="0"/>
+  <polygon points="428,250 440,250 160,880 124,880" fill="#e6e6e6"/>
+  <polygon points="584,250 596,250 900,880 864,880" fill="#e6e6e6"/>
+  <polygon points="506,270 518,270 530,330 494,330" fill="#e6e6e6"/>
+  <polygon points="498,390 526,390 546,500 478,500" fill="#e6e6e6"/>
+  <polygon points="486,590 538,590 574,760 450,760" fill="#e6e6e6"/>
+  <!-- tracked car ahead -->
+  <rect x="470" y="300" width="84" height="46" rx="10" fill="#ff9340"/>
+  <rect x="482" y="312" width="60" height="14" rx="3" fill="#0e1218" opacity=".75"/>
+  <rect x="460" y="290" width="104" height="66" rx="8" fill="none" stroke="#35e0ff" stroke-width="8"/>
+  <!-- ego car -->
+  <rect x="356" y="700" width="312" height="170" rx="40" fill="#35e0ff"/>
+  <rect x="396" y="730" width="232" height="52" rx="14" fill="#0e1218" opacity=".78"/>
+  <rect x="372" y="824" width="62" height="22" rx="8" fill="#ff2a2a"/>
+  <rect x="590" y="824" width="62" height="22" rx="8" fill="#ff2a2a"/>
+</svg>

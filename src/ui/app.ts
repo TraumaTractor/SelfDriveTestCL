@@ -1,10 +1,12 @@
 import { EgoDriver } from '../ego/egoDriver';
 import { RuleSet } from '../ego/rules';
+import { Dashcam } from '../render/dashcam';
 import { Renderer } from '../render/renderer';
 import { SIM_DT } from '../sim/headless';
 import { World, defaultConfig, type WorldConfig } from '../sim/world';
 import { MS_TO_KMH } from '../common';
 import { h } from './dom';
+import { decisionsPanel } from './decisionsPanel';
 import { resultsPanel, setStale } from './resultsPanel';
 import { rulesPanel } from './rulesPanel';
 import type { App, Panel } from './state';
@@ -67,8 +69,21 @@ export function startApp(root: HTMLElement): void {
   // ----------------------------------------------------------- layout
   const canvas = h('canvas');
   const renderer = new Renderer(canvas);
+  const dashCanvas = h('canvas', { class: 'dash', title: 'Driver dashcam - click to enlarge / shrink' });
+  const dashcam = new Dashcam(dashCanvas);
+  type View = 'top' | 'pip' | 'dash';
+  let view: View = 'pip';
+  const stage = h('div', { class: 'stage', 'data-view': view }, canvas, dashCanvas);
+  const setView = (v: View) => {
+    view = v;
+    stage.setAttribute('data-view', v);
+    viewSel.value = v;
+    requestAnimationFrame(() => { renderer.resize(); dashcam.resize(); });
+  };
+  dashCanvas.addEventListener('click', () => setView(view === 'pip' ? 'dash' : 'pip'));
   const rulesTab = rulesPanel(app);
   const trafficTab = trafficPanel(app);
+  const decisionsTab = decisionsPanel(app);
   const results = resultsPanel(app);
   let playing = true;
   let speed = 1;
@@ -86,6 +101,8 @@ export function startApp(root: HTMLElement): void {
 
   const speedSel = h('select', { on: { change: () => { speed = Number(speedSel.value); } } },
     ...[0.25, 0.5, 1, 2, 4, 8].map((s) => h('option', { value: String(s), selected: s === 1 }, `${s}×`)));
+  const viewSel = h('select', { on: { change: () => setView(viewSel.value as View) } },
+    h('option', { value: 'top' }, 'Top-down'), h('option', { value: 'pip', selected: true }, 'Top-down + dashcam'), h('option', { value: 'dash' }, 'Dashcam'));
   const zoomIn = h('input', { type: 'range', min: '3', max: '16', step: '0.5', value: String(zoom), style: 'width:90px',
     on: { input: () => { zoom = Number(zoomIn.value); } } });
   const chk = (label: string, init: boolean, fn: (v: boolean) => void) => {
@@ -98,6 +115,7 @@ export function startApp(root: HTMLElement): void {
     playBtn,
     h('button', { title: 'Advance one tick', on: { click: () => { playing = false; status(); app.world.step(SIM_DT); } } }, '⏭ Step'),
     h('button', { on: { click: () => app.restart() } }, '↻ Restart'),
+    h('label', { class: 'chk' }, 'View', viewSel),
     h('label', { class: 'chk' }, 'Speed', speedSel),
     h('label', { class: 'chk' }, 'Zoom', zoomIn),
     chk('Sensors', sensors, (v) => (sensors = v)),
@@ -107,6 +125,7 @@ export function startApp(root: HTMLElement): void {
 
   const tiles = h('div', { class: 'tiles' });
   const tileDefs: [string, (w: World) => string, (w: World) => string][] = [
+    ['Lap', (w) => `${w.lap + 1}${w.cfg.endless ? '' : '/' + Math.max(1, w.cfg.laps)}`, () => ''],
     ['Time', (w) => `${w.time.toFixed(0)} s`, () => ''],
     ['Distance', (w) => `${(w.metrics.distance / 1000).toFixed(2)} km`, () => ''],
     ['Avg speed', (w) => `${(w.metrics.avgSpeed * MS_TO_KMH).toFixed(0)} km/h`, () => ''],
@@ -126,7 +145,7 @@ export function startApp(root: HTMLElement): void {
   });
 
   const tabs = [
-    ['Ego rules', rulesTab], ['Traffic', trafficTab], ['Results', results],
+    ['Ego rules', rulesTab], ['Decisions', decisionsTab], ['Traffic', trafficTab], ['Results', results],
   ] as const;
   const pane = h('div', { class: 'pane' });
   const tabBar = h('div', { class: 'tabs' });
@@ -138,12 +157,14 @@ export function startApp(root: HTMLElement): void {
   showTab(0);
 
   root.replaceChildren(header, h('main', {},
-    h('div', { class: 'left' }, canvas, tiles),
+    h('div', { class: 'left' }, stage, tiles),
     h('aside', {}, tabBar, pane)),
     h('div', { class: 'version', title: 'Self-Drive Test Bench version' }, `v${__APP_VERSION__}`));
 
   new ResizeObserver(() => renderer.resize()).observe(canvas);
+  new ResizeObserver(() => dashcam.resize()).observe(dashCanvas);
   renderer.resize();
+  dashcam.resize();
   window.addEventListener('keydown', (e) => {
     if ((e.target as HTMLElement).matches('input, textarea, select')) return;
     if (e.code === 'Space') { e.preventDefault(); toggle(); }
@@ -167,7 +188,9 @@ export function startApp(root: HTMLElement): void {
       if (steps >= 40) acc = 0;
       if (app.world.status !== 'running') { playing = false; status(); }
     }
-    renderer.draw(app.world, { zoom, showSensors: sensors, showLabels: labels, alpha: Math.min(1, acc / SIM_DT), report: app.driver.report, sensorRange: app.rules.get('keep-distance')?.params.range ?? 150 });
+    const alpha = Math.min(1, acc / SIM_DT);
+    if (view !== 'dash') renderer.draw(app.world, { zoom, showSensors: sensors, showLabels: labels, alpha, report: app.driver.report, sensorRange: app.rules.get('keep-distance')?.params.range ?? 150 });
+    if (view !== 'top') dashcam.draw(app.world, { alpha, report: app.driver.report });
 
     uiTimer += dtReal;
     if (uiTimer > 0.2) {
@@ -185,6 +208,7 @@ export function startApp(root: HTMLElement): void {
     });
     (document.getElementById('seedlabel') as HTMLElement).textContent = `seed ${w.cfg.seed} · ${w.vehicles.length} vehicles · ${w.road.lanes} lanes`;
     rulesTab.refresh(app);
+    decisionsTab.refresh(app);
     results.refresh(app);
   }
 

@@ -1,6 +1,7 @@
 import { clamp } from '../common';
 import { idm } from '../sim/idm';
 import { distanceToNextRamp } from '../sim/road';
+import { LANE_CHANGE_TIME } from '../sim/world';
 import { bumperGap, type Indicator } from '../sim/vehicle';
 import type { Ctx, Draft, Params, RuleDef, RuleImpl, RuleItem } from './context';
 
@@ -19,7 +20,10 @@ const emergencyBrake: RuleImpl = {
     const closing = ctx.me.v - lead.veh.v;
     if (closing <= 0.3) return;
     const ttc = Math.max(lead.gap, 0) / closing;
-    if (ttc < p.ttc || lead.gap < 1) d.proposeAccel('emergency-brake', -p.brake, true);
+    if (ttc < p.ttc || lead.gap < 1) {
+      d.proposeAccel('emergency-brake', -p.brake, true,
+        `time-to-collision ${ttc.toFixed(1)} s (trigger ${p.ttc} s): ${ctx.name(lead.veh)} at ${(lead.veh.v * 3.6).toFixed(0)} km/h, ${lead.gap.toFixed(0)} m ahead, closing ${(closing * 3.6).toFixed(0)} km/h`);
+    }
   },
 };
 
@@ -39,7 +43,8 @@ const keepDistance: RuleImpl = {
     const lead = ctx.leader();
     if (!lead || lead.gap > p.range) return;
     const a = idm({ a: p.maxAccel, b: p.comfortDecel, T: p.headway, s0: p.minGap }, ctx.me.v, ctx.cruise, lead.gap, ctx.me.v - lead.veh.v);
-    d.proposeAccel('keep-distance', a);
+    d.proposeAccel('keep-distance', a,
+      false, `following a ${ctx.name(lead.veh)} at ${(lead.veh.v * 3.6).toFixed(0)} km/h, ${lead.gap.toFixed(0)} m ahead (${(lead.gap / Math.max(ctx.me.v, 0.1)).toFixed(1)} s; I want ${p.headway} s)`);
   },
 };
 
@@ -69,7 +74,8 @@ const yieldToMerging: RuleImpl = {
           { a: 1.8, b: 2.2, T: 1.6 + p.extraHeadway, s0: 3 },
           me.v, ctx.cruise, Math.max(gap, 0.5), me.v - o.v,
         );
-        d.proposeAccel('yield-to-merging', a);
+        d.proposeAccel('yield-to-merging', a, false,
+          `${ctx.name(o)} ${signalling ? 'is signalling into my lane' : 'is on the ramp beside me'}, ${Math.max(gap, 0).toFixed(0)} m ahead: treating it as my leader to open a gap`);
       }
     }
   },
@@ -86,7 +92,8 @@ const keepSpeed: RuleImpl = {
     ],
   },
   run(ctx, p, d) {
-    d.proposeAccel('keep-speed', clamp(p.gain * (ctx.cruise - ctx.me.v), -3, p.maxAccel));
+    d.proposeAccel('keep-speed', clamp(p.gain * (ctx.cruise - ctx.me.v), -3, p.maxAccel), false,
+      `holding ${(ctx.cruise * 3.6).toFixed(0)} km/h (limit ${(ctx.limit * 3.6).toFixed(0)}); now ${(ctx.me.v * 3.6).toFixed(0)}`);
   },
 };
 
@@ -104,7 +111,8 @@ const makeRoom: RuleImpl = {
     if (!ctx.canChangeLane || me.targetLane !== 0 || ctx.timeSinceLaneChange < p.cooldown) return;
     for (const o of world.vehiclesInLane(-1)) {
       if (o.onRamp && o.s > me.s - 30 && o.s < me.s + p.lookahead) {
-        d.proposeLane('make-room', 1);
+        d.proposeLane('make-room', 1,
+          `a car on the on-ramp is ${Math.abs(o.s - me.s).toFixed(0)} m ${o.s > me.s ? 'ahead' : 'behind'} and about to merge: moving over to make room`);
         return;
       }
     }
@@ -114,35 +122,49 @@ const makeRoom: RuleImpl = {
 const overtake: RuleImpl = {
   def: {
     id: 'overtake', name: 'Overtake slow vehicles', phase: 'main',
-    description: 'Moves to the faster lane when stuck behind something much slower than our target speed.',
+    description: 'Moves over when the vehicle ahead is going to affect us - i.e. it is slower than our target speed and close enough that we would have to follow it. It moves early, before encroaching, so we never have to slow down for it.',
     params: [
-      { key: 'speedGain', label: 'Slower than target by', min: 0.5, max: 12, step: 0.5, unit: 'm/s', default: 3 },
-      { key: 'lookahead', label: 'Look-ahead', min: 20, max: 200, step: 5, unit: 'm', default: 80 },
+      { key: 'margin', label: 'Counts as slower if below target by', min: 0, max: 8, step: 0.1, unit: 'm/s', default: 2.0 },
+      { key: 'reach', label: 'Reach (× following distance)', min: 0.5, max: 4, step: 0.1, unit: '×', default: 2.0 },
+      { key: 'foresight', label: 'Extra margin (on top of signal + move time)', min: 0, max: 8, step: 0.5, unit: 's', default: 2 },
+      { key: 'lookahead', label: 'Max look-ahead', min: 30, max: 400, step: 10, unit: 'm', default: 250 },
       { key: 'cooldown', label: 'Cooldown', min: 0, max: 30, step: 1, unit: 's', default: 6 },
     ],
   },
   run(ctx, p, d) {
     const { me, world } = ctx;
     if (!ctx.canChangeLane) return;
-    const up = ctx.lane + 1;
     const lead = world.leaderIn(me, ctx.lane);
-    const stuck = lead && lead.gap <= p.lookahead && lead.veh.v <= ctx.cruise - p.speedGain;
-    if (!stuck) return;
+    if (!lead || lead.gap > p.lookahead) return;
+    // does it affect us at all? only if it is slower than we want to go
+    if (ctx.cruise - lead.veh.v <= p.margin) return;
+
     const kmh = (lead.veh.v * 3.6).toFixed(0);
+    const closing = Math.max(0, me.v - lead.veh.v);
+    // Start early enough that the whole manoeuvre (signal, then the move itself) is done before we
+    // would need to brake for it.
+    const manoeuvre = ctx.param('signal', 'leadTime', 0) + LANE_CHANGE_TIME + p.foresight;
+    const reach = (ctx.param('keep-distance', 'minGap', 3) + ctx.param('keep-distance', 'headway', 1.7) * me.v) * p.reach + closing * manoeuvre;
+    if (lead.gap > reach) {
+      d.note('overtake', `${kmh} km/h car ahead is slower than my ${(ctx.cruise * 3.6).toFixed(0)}; will move over inside ${reach.toFixed(0)}m (now ${lead.gap.toFixed(0)}m)`);
+      return;
+    }
     if (ctx.timeSinceLaneChange < p.cooldown) {
       d.note('overtake', `held up by a ${kmh} km/h car, but only ${ctx.timeSinceLaneChange.toFixed(0)}s since last lane change (cooldown ${p.cooldown}s)`);
       return;
     }
+    const up = ctx.lane + 1;
     if (up >= world.cfg.lanes) {
       d.note('overtake', `held up by a ${kmh} km/h car but already in the fastest lane`);
       return;
     }
     const next = world.leaderIn(me, up);
-    if (next && next.gap < p.lookahead && next.veh.v < lead.veh.v + 1) {
+    if (next && next.gap < lead.gap && next.veh.v < lead.veh.v + 1) {
       d.note('overtake', `held up by a ${kmh} km/h car, but lane ${up + 1} is no faster`);
       return;
     }
-    d.proposeLane('overtake', up);
+    d.proposeLane('overtake', up,
+      `${ctx.name(lead.veh)} ahead at ${kmh} km/h is slower than my ${(ctx.cruise * 3.6).toFixed(0)} km/h target and within ${reach.toFixed(0)} m (now ${lead.gap.toFixed(0)} m): it would hold me up, so I move over before having to slow down`);
   },
 };
 
@@ -173,7 +195,53 @@ const returnSlowLane: RuleImpl = {
       d.note('return-slow-lane', `slow lane busy: ${(lead.veh.v * 3.6).toFixed(0)} km/h car ${lead.gap.toFixed(0)}m ahead`);
       return;
     }
-    d.proposeLane('return-slow-lane', down);
+    d.proposeLane('return-slow-lane', down,
+      !lead ? `lane ${down + 1} is empty ahead: keeping left unless overtaking`
+        : lead.gap >= p.freeGap ? `lane ${down + 1} is clear for ${lead.gap.toFixed(0)} m: keeping left unless overtaking`
+        : `the ${ctx.name(lead.veh)} ahead in lane ${down + 1} (${lead.gap.toFixed(0)} m) is going ${(lead.veh.v * 3.6).toFixed(0)} km/h, no slower than my target: keeping left unless overtaking`);
+  },
+};
+
+const noUndertake: RuleImpl = {
+  def: {
+    id: 'no-undertake', name: 'No undertaking', phase: 'post',
+    description: 'Never pass on the inside. Holds back rather than drawing past slower traffic in the lane to our right, and vetoes a move left that would pass a slower car in our own lane. Slow-moving queues are exempt.',
+    params: [
+      { key: 'queueSpeed', label: 'Queue speed (undertaking allowed below)', min: 0, max: 20, step: 1, unit: 'm/s', default: 8 },
+      { key: 'margin', label: 'Tolerance', min: 0, max: 5, step: 0.5, unit: 'm/s', default: 1.5 },
+      { key: 'lookahead', label: 'Look-ahead', min: 20, max: 200, step: 10, unit: 'm', default: 80 },
+      { key: 'maxDecel', label: 'Max braking to hold back', min: 0.5, max: 4, step: 0.1, unit: 'm/s²', default: 1.5 },
+    ],
+  },
+  run(ctx, p, d) {
+    const { me, world } = ctx;
+    if (me.v < p.queueSpeed) return;
+
+    // 1. don't draw past slower traffic in the lane on our right (overtaking side)
+    const right = ctx.lane + 1;
+    if (right < world.cfg.lanes) {
+      let worst: { v: number; gap: number } | null = null;
+      for (const o of world.vehiclesInLane(right)) {
+        if (o === me || o.crashed || o.v < p.queueSpeed) continue;
+        const gap = bumperGap(me, o);
+        if (gap < -o.length * 1.5 || gap > p.lookahead || o.v > me.v - p.margin) continue;
+        if (!worst || o.v < worst.v) worst = { v: o.v, gap };
+      }
+      if (worst) {
+        const a = clamp(0.8 * (worst.v + p.margin - me.v), -p.maxDecel, 0);
+        d.proposeAccel('no-undertake', a, false,
+          `a ${(worst.v * 3.6).toFixed(0)} km/h car in lane ${right + 1} ${worst.gap > 0 ? worst.gap.toFixed(0) + ' m ahead' : 'beside me'} is slower than me: I won't pass it on the inside`);
+        d.note('no-undertake', `not undertaking the ${(worst.v * 3.6).toFixed(0)} km/h car in lane ${right + 1}: holding back`);
+      }
+    }
+
+    // 2. don't pull left past a slower car that is in our own lane
+    if (d.lane !== null && d.lane < ctx.lane) {
+      const lead = world.leaderIn(me, ctx.lane);
+      if (lead && lead.gap < p.lookahead && lead.veh.v >= p.queueSpeed && lead.veh.v < me.v - p.margin) {
+        d.veto('no-undertake', `moving left would undertake the ${(lead.veh.v * 3.6).toFixed(0)} km/h car ahead`);
+      }
+    }
   },
 };
 
@@ -233,7 +301,7 @@ const comfort: RuleImpl = {
 export const RULE_IMPLS: RuleImpl[] = [
   emergencyBrake, keepDistance, yieldToMerging, keepSpeed,
   makeRoom, overtake, returnSlowLane,
-  laneSafety, signal, comfort,
+  noUndertake, laneSafety, signal, comfort,
 ];
 
 export const RULE_BY_ID: Record<string, RuleImpl> = Object.fromEntries(RULE_IMPLS.map((r) => [r.def.id, r]));

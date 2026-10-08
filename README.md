@@ -13,12 +13,37 @@ npm test           # simulation + rule-engine tests
 npm run build      # typecheck + production build
 ```
 
+## Desktop app (Mac)
+
+The app can run on its own as a normal Mac application - no browser, server or internet needed (Electron).
+
+```bash
+npm install
+npm run app        # build and open it in its own window right now
+npm run dist       # build a distributable .dmg into ./release  (run this on a Mac)
+```
+
+You can also let GitHub build the `.dmg` for you: *Actions → Build Mac app → Run workflow* (or push a tag
+such as `v0.6.0` to attach it to a Release), then download it from the run's artifacts.
+
+Install by dragging the app into Applications. The build is **unsigned**, so the first time you open it use
+**right-click → Open** (then *Open* again). If macOS says it is "damaged", run
+`xattr -cr "/Applications/Self-Drive Test Bench.app"` once.
+
+**Updating:** there is no auto-update (that needs a paid Apple developer account for signing). To update, build
+or download the new `.dmg` and drag the app over the old one. Your rule sets and settings are kept - they live in
+the app's own data folder, not in the app itself. Use *Export* on the rules tab if you want a backup.
+
 ## Using it
 
 * **Ego rules tab** – an ordered stack of rules. Toggle them, expand to tune parameters, reorder with ▲▼.
   Edits apply *live* to the running car; the card for whichever rule is currently driving lights up, and the
   on-canvas readout says what is controlling acceleration / lane changes and why a lane change was vetoed.
   Presets, JSON export/import and auto-save (localStorage) are included.
+* **Decisions tab** – a plain-English log of what the car decided and why: speed control changes (which rule took
+  over, what every other rule proposed and why it was overruled), planned / completed / abandoned lane changes
+  (with the impact check and signalling), lane changes blocked by a rule, and emergency brakes. Click an entry for
+  the full situation. Above it, a breakdown of which rule was driving the speed.
 * **Traffic tab** – seed, lanes, length, density, on-ramp flow, the driver mix, and every parameter of each
   driver personality (headway, politeness, signalling probability, gap accepted when merging, reaction time,
   attention lapses…). Applies on restart.
@@ -28,6 +53,14 @@ npm run build      # typecheck + production build
 
 Traffic drives on the left (UK style): the slow lane is the top lane on screen, overtaking lanes are below it,
 and on-ramps join on the left. Great drivers sit in the slow lane unless they are overtaking.
+
+**Views**: top-down, top-down with a *driver dashcam* inset (click it to enlarge), or full dashcam - a
+perspective view from the driver's seat with a rear-view mirror, the tracked vehicle, speed signs and the
+indicator.
+
+**Endless loop**: the road is a loop - the same layout (speed zones, on-ramps) repeats lap after lap and the run
+never finishes (switch off *Endless road* in the Traffic tab to finish after N laps). The ring in the corner
+shows where you are on the loop. Batch tests score one lap per seed.
 
 Keys: `Space` play/pause, `R` restart.
 
@@ -39,8 +72,14 @@ Rules marked **filter** run afterwards and can veto a lane change (safety check)
 seen first (signal), or clamp acceleration (comfort limits; emergency braking is exempt).
 
 Built-in rules: emergency brake · keep following distance (IDM) · yield to merging traffic · keep to speed
-limit · move over for on-ramp · overtake slow vehicles · return to slow lane · lane-change safety ·
-signal before lane change · comfort limits.
+limit · move over for on-ramp · overtake slow vehicles · return to slow lane · no undertaking ·
+lane-change impact check · signal before lane change · comfort limits.
+
+**Overtaking** is triggered by whether the vehicle ahead will *affect* you: it must be slower than your target
+speed and close enough that you would have to follow it. The car moves over early - allowing for the signal
+delay and the move itself - so it never has to slow down for the vehicle first. A car going about the same
+speed is simply followed. **No undertaking** holds the car back rather than passing on the inside, and vetoes
+a move left that would pass a slower car in its own lane (slow-moving queues are exempt).
 
 ### Lane-change safety is about impact, not distance
 
