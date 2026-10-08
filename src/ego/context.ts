@@ -116,9 +116,19 @@ export class Draft {
   clampedBy: string | null = null;
   /** the last lane-change impact assessment, for display */
   check: MergeCheck | null = null;
+  /** everything that was proposed or observed this tick, so the car's reasoning can be shown */
+  accelProposals: { by: string; a: number }[] = [];
+  laneProposals: { by: string; lane: number }[] = [];
+  notes: { by: string; text: string }[] = [];
+
+  /** A rule's observation about why it is (not) acting - purely for explanation. */
+  note(by: string, text: string): void {
+    this.notes.push({ by, text });
+  }
 
   /** Accel proposals are resolved most-restrictive-wins. */
   proposeAccel(by: string, a: number, emergency = false): void {
+    this.accelProposals.push({ by, a });
     if (a < this.accel) {
       this.accel = a;
       this.accelBy = by;
@@ -128,6 +138,7 @@ export class Draft {
 
   /** Lane proposals are resolved by list order: the first rule to propose wins. */
   proposeLane(by: string, lane: number): void {
+    this.laneProposals.push({ by, lane });
     if (this.lane === null && this.vetoBy === null) {
       this.lane = lane;
       this.laneBy = by;

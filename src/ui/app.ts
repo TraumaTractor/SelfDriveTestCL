@@ -139,7 +139,8 @@ export function startApp(root: HTMLElement): void {
 
   root.replaceChildren(header, h('main', {},
     h('div', { class: 'left' }, canvas, tiles),
-    h('aside', {}, tabBar, pane)));
+    h('aside', {}, tabBar, pane)),
+    h('div', { class: 'version', title: 'Self-Drive Test Bench version' }, `v${__APP_VERSION__}`));
 
   new ResizeObserver(() => renderer.resize()).observe(canvas);
   renderer.resize();

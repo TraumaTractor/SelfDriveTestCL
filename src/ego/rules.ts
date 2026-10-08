@@ -123,13 +123,25 @@ const overtake: RuleImpl = {
   },
   run(ctx, p, d) {
     const { me, world } = ctx;
-    if (!ctx.canChangeLane || ctx.timeSinceLaneChange < p.cooldown) return;
+    if (!ctx.canChangeLane) return;
     const up = ctx.lane + 1;
-    if (up >= world.cfg.lanes) return;
     const lead = world.leaderIn(me, ctx.lane);
-    if (!lead || lead.gap > p.lookahead || lead.veh.v > ctx.cruise - p.speedGain) return;
+    const stuck = lead && lead.gap <= p.lookahead && lead.veh.v <= ctx.cruise - p.speedGain;
+    if (!stuck) return;
+    const kmh = (lead.veh.v * 3.6).toFixed(0);
+    if (ctx.timeSinceLaneChange < p.cooldown) {
+      d.note('overtake', `held up by a ${kmh} km/h car, but only ${ctx.timeSinceLaneChange.toFixed(0)}s since last lane change (cooldown ${p.cooldown}s)`);
+      return;
+    }
+    if (up >= world.cfg.lanes) {
+      d.note('overtake', `held up by a ${kmh} km/h car but already in the fastest lane`);
+      return;
+    }
     const next = world.leaderIn(me, up);
-    if (next && next.gap < p.lookahead && next.veh.v < lead.veh.v + 1) return; // no better over there
+    if (next && next.gap < p.lookahead && next.veh.v < lead.veh.v + 1) {
+      d.note('overtake', `held up by a ${kmh} km/h car, but lane ${up + 1} is no faster`);
+      return;
+    }
     d.proposeLane('overtake', up);
   },
 };
@@ -146,11 +158,21 @@ const returnSlowLane: RuleImpl = {
   },
   run(ctx, p, d) {
     const { me, world } = ctx;
-    if (!ctx.canChangeLane || ctx.lane <= 0 || ctx.timeSinceLaneChange < p.dwell) return;
-    if (ctx.lane === 1 && distanceToNextRamp(world.road, me.s) < p.avoidRamp) return;
+    if (!ctx.canChangeLane || ctx.lane <= 0) return;
+    if (ctx.timeSinceLaneChange < p.dwell) {
+      d.note('return-slow-lane', `would drift back left, settling in lane for ${(p.dwell - ctx.timeSinceLaneChange).toFixed(0)}s more`);
+      return;
+    }
+    if (ctx.lane === 1 && distanceToNextRamp(world.road, me.s) < p.avoidRamp) {
+      d.note('return-slow-lane', 'on-ramp ahead, staying out of the slow lane');
+      return;
+    }
     const down = ctx.lane - 1;
     const lead = world.leaderIn(me, down);
-    if (lead && lead.gap < p.freeGap && lead.veh.v < ctx.cruise - 1) return;
+    if (lead && lead.gap < p.freeGap && lead.veh.v < ctx.cruise - 1) {
+      d.note('return-slow-lane', `slow lane busy: ${(lead.veh.v * 3.6).toFixed(0)} km/h car ${lead.gap.toFixed(0)}m ahead`);
+      return;
+    }
     d.proposeLane('return-slow-lane', down);
   },
 };

@@ -1,5 +1,6 @@
 import { MS_TO_KMH } from '../common';
 import type { EgoReport } from '../ego/egoDriver';
+import { RULE_BY_ID } from '../ego/rules';
 import { rampAt, speedLimitAt } from '../sim/road';
 import type { Vehicle } from '../sim/vehicle';
 import type { World } from '../sim/world';
@@ -54,7 +55,7 @@ export class Renderer {
     // Vehicles drive left-to-right and keep LEFT (UK style): the slow lane (lane 0) is the
     // driver's left, i.e. the top of the screen. Overtaking lanes are below it, on-ramps join on the left.
     const roadH = (lanes + 1) * lw * sy;
-    const lane0Y = this.h / 2 - roadH / 2 + lw * sy * 1.5 + 8;
+    const lane0Y = this.h / 2 - roadH / 2 + lw * sy * 1.5 + 44;
     const yOf = (lane: number) => lane0Y + lane * lw * sy;
 
     // grass + scenery
@@ -330,6 +331,76 @@ export class Renderer {
     };
   }
 
+  /** The "thought process" card: what the car wants, what each rule proposed, and why. Returns its bottom edge. */
+  private thinking(world: World, r: EgoReport, top: number): number {
+    const { ctx } = this;
+    const ego = world.ego;
+    const name = (id: string) => RULE_BY_ID[id]?.def.name ?? id;
+    const fmt = (a: number) => `${a >= 0 ? '+' : '−'}${Math.abs(a).toFixed(1)}`;
+    type Line = { text: string; color: string; bold?: boolean };
+    const L: Line[] = [];
+    const dim = '#8d94a0', txt = '#cfd6e0', amber = '#ffb000', red = '#ff4d6a', cyan = '#35e0ff', green = '#3ecf8e';
+
+    // speed
+    L.push({ text: `GOAL  hold ${(r.targetSpeed * MS_TO_KMH).toFixed(0)} km/h (limit ${(r.limit * MS_TO_KMH).toFixed(0)}) · now ${(ego.v * MS_TO_KMH).toFixed(0)}`, color: txt });
+
+    // acceleration: every proposal, most restrictive first
+    const props = [...r.accelProposals].sort((x, y) => x.a - y.a).slice(0, 4);
+    if (props.length === 0) L.push({ text: 'SPEED  no rule is controlling speed (coasting)', color: amber });
+    props.forEach((p, i) => {
+      const winner = i === 0;
+      L.push({
+        text: `${i === 0 ? 'SPEED ' : '      '}${winner ? '▶' : ' '} ${name(p.by)} ${fmt(p.a)} m/s²${winner ? '  ◀ wins' : ''}`,
+        color: winner ? (r.emergency ? red : cyan) : dim, bold: winner,
+      });
+    });
+    if (r.clampedBy) L.push({ text: `      ⤷ ${name(r.clampedBy)} limits it to ${fmt(r.accel)} m/s²`, color: amber });
+    else if (props.length) L.push({ text: `      ⤷ applying ${fmt(r.accel)} m/s²`, color: dim });
+    if (r.emergency) L.push({ text: 'EMERGENCY BRAKE', color: red, bold: true });
+
+    // lane
+    const lane = ego.targetLane + 1;
+    if (ego.changing) {
+      const prog = Math.round((1 - Math.abs(ego.targetLane - ego.y)) * 100);
+      L.push({ text: `LANE  changing ${lane - Math.sign(ego.targetLane - ego.y)}→${lane} (${prog}%)${r.signalling ? ' · indicator on' : ' · no indicator!'}`, color: green });
+    } else if (r.pendingLane !== null) {
+      L.push({ text: `LANE  ${name(r.laneBy ?? 'overtake')} → lane ${r.pendingLane + 1}`, color: amber });
+      L.push({ text: `      signalling, moving in ${(r.signalRemaining ?? 0).toFixed(1)}s`, color: amber });
+    } else if (r.vetoBy) {
+      const want = r.laneProposals[0];
+      L.push({ text: `LANE  ${want ? `${name(want.by)} wants lane ${want.lane + 1}` : 'lane change wanted'}`, color: txt });
+      L.push({ text: `      ✖ blocked: ${r.vetoReason}`, color: red });
+    } else if (r.laneProposals.length) {
+      L.push({ text: `LANE  ${name(r.laneProposals[0].by)} → lane ${r.laneProposals[0].lane + 1}`, color: amber });
+      L.push({ text: '      no signal rule: moving without indicating', color: red });
+    } else {
+      L.push({ text: `LANE  staying in lane ${lane}`, color: dim });
+    }
+    for (const n of r.notes.slice(0, 3)) L.push({ text: `      · ${n.text}`, color: dim });
+
+    const w = 400, lh = 15;
+    const h = 24 + L.length * lh;
+    ctx.fillStyle = 'rgba(10,14,20,0.82)';
+    roundRect(ctx, 10, top, w, h, 8);
+    ctx.fill();
+    this.text('THINKING', 20, top + 15, cyan, 10);
+    L.forEach((l, i) => {
+      ctx.font = `${l.bold ? '600 ' : ''}12px ui-monospace, SFMono-Regular, Menlo, monospace`;
+      ctx.fillStyle = l.color;
+      ctx.textAlign = 'left';
+      ctx.fillText(this.fit(l.text, w - 20), 20, top + 31 + i * lh);
+    });
+    return top + h;
+  }
+
+  private fit(text: string, maxW: number): string {
+    const { ctx } = this;
+    if (ctx.measureText(text).width <= maxW) return text;
+    let t = text;
+    while (t.length > 4 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+    return t + '…';
+  }
+
   private hud(world: World, o: RenderOptions): void {
     const { ctx } = this;
     const ego = world.ego;
@@ -345,22 +416,11 @@ export class Renderer {
 
     let hudBottom = 84;
     const r = o.report;
-    if (r) {
-      const lines: string[] = [];
-      lines.push(`accel ${r.accel >= 0 ? '+' : ''}${r.accel.toFixed(1)} ← ${r.accelBy ?? 'none'}${r.clampedBy ? ' (clamped)' : ''}`);
-      if (r.laneBy) lines.push(`lane intent ← ${r.laneBy}`);
-      if (r.vetoBy) lines.push(`lane change vetoed: ${r.vetoReason}`);
-      if (r.emergency) lines.push('EMERGENCY BRAKE');
-      ctx.fillStyle = 'rgba(10,14,20,0.78)';
-      roundRect(ctx, 10, 84, 260, 10 + lines.length * 16, 8);
-      ctx.fill();
-      lines.forEach((l, i) => this.text(l, 20, 101 + i * 16, r.emergency && i === lines.length - 1 ? '#ff4d6a' : i === 2 ? '#ffb000' : '#cfd6e0', 12));
-      hudBottom = 84 + 10 + lines.length * 16;
-    }
+    if (r) hudBottom = this.thinking(world, r, 84);
 
     const t = this.tracked(world);
     ctx.fillStyle = 'rgba(10,14,20,0.78)';
-    roundRect(ctx, 10, hudBottom + 8, 260, 66, 8);
+    roundRect(ctx, 10, hudBottom + 8, 400, 66, 8);
     ctx.fill();
     this.text('TRACKING', 20, hudBottom + 23, '#35e0ff', 10);
     if (t) {
